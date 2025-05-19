@@ -7,6 +7,8 @@ const port=process.env.PORT
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }));
 app.use("/student",require('./routes/student'));
+app.use("/company",require('./routes/company'));
+app.use("/admin",require('./routes/admin'));
 
 app.get("/",(req,res)=>{
     res.send("Hello")
