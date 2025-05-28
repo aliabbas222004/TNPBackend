@@ -13,14 +13,15 @@ const uploadDirect = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const { cloudinary } = require('../config/cloudinary');
 const StudentData = require('../models/StudentData');
+const AppliedStudentDetails = require('../models/AppliedStudentDetails');
 
-function uploadBufferToCloudinary(buffer, publicId) {
+function uploadBufferToCloudinary(buffer, publicId, resourceType = 'image') {
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
             {
-                folder: 'tnp_profile_images',
+                folder: resourceType === 'image' ? 'tnp_profile_images' : 'tnp_resumes',
                 public_id: publicId,
-                resource_type: 'image',
+                resource_type: resourceType,
                 overwrite: true,
             },
             (error, result) => {
@@ -32,6 +33,7 @@ function uploadBufferToCloudinary(buffer, publicId) {
         stream.end(buffer);
     });
 }
+
 
 
 function parsePercentage(str) {
@@ -114,9 +116,23 @@ router.post('/logIn', async (req, res) => {
     }
 });
 
-router.post('/uploadDetails', uploadDirect.array('images', 3), async (req, res) => {
+router.post('/uploadDetails', uploadDirect.fields([
+    { name: 'images', maxCount: 3 },
+    { name: 'resume', maxCount: 1 }
+]), async (req, res) => {
     try {
-        const files = req.files;
+        const files = req.files.images;
+        const resumeFile = req.files.resume?.[0];
+        let resumeUrl = null;
+
+        if (resumeFile) {
+            const uploadedResume = await uploadBufferToCloudinary(
+                resumeFile.buffer,
+                `resume_${Date.now()}`,
+                'raw' 
+            );
+            resumeUrl = uploadedResume.secure_url;
+        }
 
         if (!files || files.length !== 3) {
             return res.status(400).json({ error: 'Please upload exactly 3 images: Class 10, Class 12 OR Diploma, and College marksheet.' });
@@ -190,34 +206,41 @@ Only respond with clean JSON. Do not include any explanation or markdown.
                 .trim();
 
             const extracted = JSON.parse(cleanText);
+
             const uploadResults = await Promise.all(
                 files.map((file, idx) =>
-                    uploadBufferToCloudinary(file.buffer, `tnp_profile_images/upload_${Date.now()}_${idx}`)
+                    uploadBufferToCloudinary(
+                        file.buffer,
+                        `upload_${Date.now()}_${idx}`,
+                        'image' // ✅ Explicitly uploading images
+                    )
                 )
             );
 
             await StudentData.create({
+                prn:req.body.prn,
                 education: {
                     college: {
-                        cmks: parseNumber(extracted.college_cgpa),  // e.g. "9.23" -> 9.23
-                        cimage: uploadResults[2].secure_url          // college image
+                        cmks: parseNumber(extracted.college_cgpa),
+                        cimage: uploadResults[2].secure_url
                     },
                     std12_or_diploma: {
-                        mks12: parsePercentage(extracted.std12_or_diploma), // e.g. "98.33%" -> 98.33
-                        image12: uploadResults[1].secure_url,               // std12/diploma image
+                        mks12: parsePercentage(extracted.std12_or_diploma),
+                        image12: uploadResults[1].secure_url,
                     },
                     std10: {
-                        mks10: parsePercentage(extracted.std10_percentage), // e.g. "52.29%" -> 52.29
-                        image10: uploadResults[0].secure_url,               // std10 image
+                        mks10: parsePercentage(extracted.std10_percentage),
+                        image10: uploadResults[0].secure_url,
                     }
-                }
+                },
+                resume: resumeUrl
             });
-
 
             return res.json({
                 message: "Data saved successfully",
                 success: true
             });
+
         } catch (parseErr) {
             console.error('Failed to parse JSON:', parseErr);
             return res.json({ rawOutput: text });
@@ -226,6 +249,73 @@ Only respond with clean JSON. Do not include any explanation or markdown.
     } catch (err) {
         console.error(err);
         return res.status(500).json({ error: 'Something went wrong.', details: err.message });
+    }
+});
+
+
+router.post('/getQuestionFromResume', async (req, res) => {
+    const prompt = `
+You will be provided with the resume link
+
+Extract the data from the resume and give random 5 questions based on the resume data that can be asked in interview.
+
+Return the results strictly in this JSON format:
+{
+}
+
+Only respond with clean JSON. Do not include any explanation or markdown.
+`;
+
+
+    const model = genAI.getGenerativeModel({ model: 'models/gemini-1.5-flash' });
+
+    const result = await model.generateContentStream({
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    { text: prompt },
+                    ...base64Images
+                ]
+            }
+        ]
+    });
+
+    let text = '';
+    for await (const chunk of result.stream) {
+        const part = chunk.text();
+        if (part) text += part;
+    }
+})
+
+router.post('/applyForJob', uploadDirect.single('resume'), async (req, res) => {
+    try {
+        const { prn, jobId } = req.body;
+
+        if (!req.file) {
+            return res.status(400).json({ message: "Resume file is required", success: false });
+        }
+
+        const uploadedResume = await uploadBufferToCloudinary(
+            req.file.buffer,
+            `resume_${prn}_${Date.now()}`,
+            'raw'
+        );
+
+        const resumeUrl = uploadedResume.secure_url;
+
+        await AppliedStudentDetails.create({
+            prn,
+            jobId,
+            resume: resumeUrl
+        });
+
+        return res.status(200).json({
+            message: "Applied successfully",
+            success: true,
+        });
+    } catch (err) {
+        return res.status(500).json({ message: "Server error", success: false });
     }
 });
 

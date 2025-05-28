@@ -6,6 +6,10 @@ const studentSchema = new Schema({
         required:true,
         unique:true
     },
+    department:{
+        type:String,
+        reqired:true,
+    },
     name:{
         type:String,
         required:true

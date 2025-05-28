@@ -5,6 +5,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { upload } = require('../config/cloudinary');
 const Job = require('../models/Job');
+const AppliedStudentDetails = require('../models/AppliedStudentDetails');
+const Student = require('../models/Student');
+const StudentData = require('../models/StudentData');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 
@@ -58,7 +61,7 @@ router.post('/addInformation', upload.array('companyProfile', 1), async (req, re
 });
 
 router.post('/addJob', async (req, res) => {
-    const { jobTitle,jobDescription,skills,education,workLocation,workDays,workTime,workMode,workModel,CTC,department,bond,lastDateForApplication } = req.body;
+    const { jobTitle, jobDescription, skills, education, workLocation, workDays, workTime, workMode, workModel, CTC, department, bond, lastDateForApplication } = req.body;
 
     await Job.create({
         jobTitle,
@@ -76,7 +79,99 @@ router.post('/addJob', async (req, res) => {
         lastDateForApplication
     });
 
-    return res.status(200).json({message:"Job created successfully!",suceess:true});
+    return res.status(200).json({ message: "Job created successfully!", suceess: true });
 })
+
+router.get('/interestedStudents', async (req, res) => {
+    const currDate = Date.now();
+    const job = await Job.findOne({ _id: req.body.jobId });
+    if (currDate < job.lastDateForApplication) {
+        return res.json({ error: 'The application has not yet closed. Try after the closing date', success: false });
+    }
+
+    const allStudents = await AppliedStudentDetails.find({ jobId: req.body.jobId });
+    const studentIds = allStudents.map(app => app.prn);
+
+    const allStudentDetails = await Student.find({ prn: { $in: studentIds } });
+
+    const allStudentData = await StudentData.find({ prn: { $in: studentIds } });
+
+    const studentDataMap = {};
+    allStudentData.forEach(data => {
+        studentDataMap[data.prn] = data;
+    });
+
+    const combined = allStudentDetails.map(stud => {
+        return {
+            ...stud.toObject(),
+            additionalData: studentDataMap[stud.prn] || null
+        };
+    });
+
+    return res.json(combined);
+})
+
+
+router.get('/selectStudents', async (req, res) => {
+    const currDate = Date.now();
+    const job = await Job.findOne({ _id: req.body.jobId });
+    if (currDate < job.lastDateForApplication) {
+        return res.json({ error: 'The application has not yet closed. Try after the closing date', success: false });
+    }
+
+    const allStudents = await AppliedStudentDetails.find({ jobId: req.body.jobId });
+    const studentIds = allStudents.map(app => app.prn);
+
+    const allStudentData = await StudentData.find({
+        prn: { $in: studentIds },
+        status: { $ne: 'Selected' }
+    });
+    const filteredPrns = allStudentData.map(data => data.prn);
+
+    const allStudentDetails = await Student.find({ prn: { $in: filteredPrns } });
+
+    const studentDataMap = {};
+    allStudentData.forEach(data => {
+        studentDataMap[data.prn] = data;
+    });
+
+    const combined = allStudentDetails.map(stud => {
+        return {
+            ...stud.toObject(),
+            additionalData: studentDataMap[stud.prn] || null
+        };
+    });
+
+    return res.json(combined);
+
+})
+
+
+router.post('/offerSelectedStudents', async (req, res) => {
+    const jobId = req.body.jobId;
+    const selectedStudents = req.body.prnS;
+
+    try {
+        await AppliedStudentDetails.updateMany(
+            { jobId: jobId, prn: { $in: selectedStudents } },
+            { $set: { status: 'Selected' } }
+        );
+
+        await StudentData.updateMany(
+            { prn: { $in: selectedStudents } },
+            { $set: { status: 'Selected' } }
+        )
+
+        await AppliedStudentDetails.updateMany(
+            { jobId: jobId, prn: { $nin: selectedStudents } },
+            { $set: { status: 'Not selected' } }
+        );
+
+        return res.json({message:"Students have been selected",success:true})
+
+    } catch (error) {
+        res.status(500).json({ error: 'Internal server error',success:false });
+    }
+});
 
 module.exports = router;                                                              

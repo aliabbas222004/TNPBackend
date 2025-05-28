@@ -2,6 +2,10 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 const studentDataSchema = new Schema({
+    prn:{
+        type:String,
+        required:true
+    },
     education: {
         college: {
             cmks: {
@@ -34,6 +38,13 @@ const studentDataSchema = new Schema({
             }
         }
     },
+    resume:{
+        type:String,
+    },
+    status:{
+        type:String,
+        default:"Not selected"
+    }
 })
 
 const StudentData=mongoose.model('studentData',studentDataSchema);
