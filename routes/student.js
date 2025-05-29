@@ -5,6 +5,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Student = require('../models/Student');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 const signUpValidation = require('../middleware/signUpValidation');
 const { upload } = require('../config/cloudinary');
 const { validationResult } = require('express-validator');
@@ -14,8 +15,28 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const { cloudinary } = require('../config/cloudinary');
 const StudentData = require('../models/StudentData');
 const Job = require('../models/Job');
-
+require('dotenv').config();
 const AppliedStudentDetails = require('../models/AppliedStudentDetails');
+
+
+const verificationCodes = {};
+const pendingRegistrations = {};
+
+// Configure nodemailer
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+function generateVerificationCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
 
 function uploadBufferToCloudinary(buffer, publicId, resourceType = 'image') {
     return new Promise((resolve, reject) => {
@@ -51,48 +72,208 @@ function parseNumber(str) {
 
 //SignUp for student
 
+// router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
+//     console.log("Body:", req.body);
+//      console.log("Files:", req.files);
+
+//     const errors = validationResult(req);
+
+//     console.log("Errors:", errors.array());
+    
+//     if (!errors.isEmpty()) {
+//         return res.status(400).json({ error: "Invalid inputs", success: false });
+//     }
+
+//     try {
+//         let stud2 = await Student.findOne({ prn: req.body.prn });
+//         let stud1 = await Student.findOne({ email: req.body.email });
+//         if (stud2) {
+//             return res.status(400).json({ error: "PRN already exists", success: false });
+//         }
+//         else if (stud1) {
+//             return res.status(400).json({ error: "Email already taken" });
+//         }
+
+//         console.log("started to save");
+
+//         const salt = await bcrypt.genSalt(10);
+//         const safePass = await bcrypt.hash(req.body.password, salt);
+//         const imageLink = req.files[0].path || '';
+//         console.log("Saving .......................");
+//         const student = await Student.create({
+//             prn: req.body.prn,
+//             name: req.body.name,
+//             email: req.body.email,
+//             password: safePass,
+//             profilePhoto: imageLink,
+//             phone: req.body.phone,
+//             address: req.body.address,
+//         });
+
+//         const data = {
+//             student: {
+//                 id: student.id
+//             }
+//         }
+//         const studentToken = jwt.sign(data, JWT_SECRET);
+//         res.json({ studentToken, message: "Student registered successfully", success: true });
+
+//     } catch (err) {
+//         console.log(err);
+//         res.status(500).send("Something went wrong");
+//     }
+// })
+
 router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ error: "Invalid inputs", success: false });
+  console.log("Body:", req.body);
+  console.log("Files:", req.files);
+
+  const errors = validationResult(req);
+  console.log("Errors:", errors.array());
+
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ error: "Invalid inputs", success: false });
+  }
+
+  try {
+    // Check for existing PRN or email
+    const stud2 = await Student.findOne({ prn: req.body.prn });
+    const stud1 = await Student.findOne({ email: req.body.email });
+    if (stud2) {
+      return res.status(400).json({ error: "PRN already exists", success: false });
     }
+    if (stud1) {
+      return res.status(400).json({ error: "Email already taken", success: false });
+    }
+
+    console.log("Started to save");
+
+    // Upload profile photo to Cloudinary
+    const imageLink = req.files[0].path || '';
+    // if (imageLink) {
+    //   const uploadedImage = await uploadBufferToCloudinary(
+    //     req.files[0].buffer,
+    //     `profile_${req.body.prn}_${Date.now()}`,
+    //     'image'
+    //   );
+    //   imageLink = uploadedImage.secure_url;
+    //   console.log("Image uploaded to Cloudinary:", imageLink);
+    // }
+
+    // Generate verification code
+    const code = generateVerificationCode();
+    console.log(`Generated verification code: ${code}`);
+    const email = req.body.email;
+
+    // Store user data and verification code temporarily
+    pendingRegistrations[email] = {
+      prn: req.body.prn,
+      name: req.body.name,
+      email: req.body.email,
+      password: req.body.password,
+      phone: req.body.phone,
+      address: req.body.address,
+      profilePhoto: imageLink,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes expiration
+    };
+    verificationCodes[email] = {
+      code,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    };
+
+    // Send verification email
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Verify Your Email Address',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>Email Verification</h2>
+          <p>Your verification code is: <strong>${code}</strong></p>
+          <p>This code will expire in 10 minutes.</p>
+        </div>
+      `,
+    };
+
+    console.log(`Verification code for ${email}: ${code}`);
 
     try {
-        let stud2 = await Student.findOne({ prn: req.body.prn });
-        let stud1 = await Student.findOne({ email: req.body.email });
-        if (stud2) {
-            return res.status(400).json({ error: "PRN already exists", success: false });
-        }
-        else if (stud1) {
-            return res.status(400).json({ error: "Email already taken" });
-        }
-
-        const salt = await bcrypt.genSalt(10);
-        const safePass = await bcrypt.hash(req.body.password, salt);
-        const imageLink = req.files[0].path || '';
-        const student = await Student.create({
-            prn: req.body.prn,
-            name: req.body.name,
-            email: req.body.email,
-            password: safePass,
-            profilePhoto: imageLink,
-            phone: req.body.phone,
-            address: req.body.address,
-        });
-
-        const data = {
-            student: {
-                id: student.id
-            }
-        }
-        const studentToken = jwt.sign(data, JWT_SECRET);
-        res.json({ studentToken })
-
-    } catch (err) {
-        console.log(err);
-        res.status(500).send("Something went wrong");
+      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        await transporter.sendMail(mailOptions);
+        console.log(`Email sent to ${email}`);
+      } else {
+        console.log('Email not sent - no credentials provided. Using console for verification code.');
+      }
+      res.status(200).json({ message: 'Verification code sent to your email', success: true });
+    } catch (emailError) {
+      console.error('Error sending email:', emailError);
+      res.status(200).json({
+        message: 'Verification code generated but email delivery failed. Check console for code.',
+        fallbackCode: code, // Remove in production
+        success: true,
+      });
     }
-})
+  } catch (err) {
+    console.error('Error in sign-up process:', err);
+    res.status(500).json({ error: 'Something went wrong', success: false });
+  }
+});
+
+router.post('/verify-email', async (req, res) => {
+  try {
+    const { email, code } = req.body;
+
+    if (!email || !code) {
+      return res.status(400).json({ message: 'Email and verification code are required', success: false });
+    }
+
+    const storedData = verificationCodes[email];
+    const userData = pendingRegistrations[email];
+
+    if (!storedData || !userData) {
+      return res.status(400).json({ message: 'No verification code or user data found for this email', success: false });
+    }
+
+    if (new Date() > storedData.expiresAt) {
+      delete verificationCodes[email];
+      delete pendingRegistrations[email];
+      return res.status(400).json({ message: 'Verification code has expired', success: false });
+    }
+
+    if (storedData.code !== code) {
+      return res.status(400).json({ message: 'Invalid verification code', success: false });
+    }
+
+    // Proceed with saving user to database
+    const salt = await bcrypt.genSalt(10);
+    const safePass = await bcrypt.hash(userData.password, salt);
+    const student = await Student.create({
+      prn: userData.prn,
+      name: userData.name,
+      email: userData.email,
+      password: safePass,
+      profilePhoto: userData.profilePhoto,
+      phone: userData.phone,
+      address: userData.address,
+    });
+
+    const data = {
+      student: {
+        id: student.id,
+      },
+    };
+    const studentToken = jwt.sign(data, JWT_SECRET);
+
+    // Clean up
+    delete verificationCodes[email];
+    delete pendingRegistrations[email];
+
+    res.status(200).json({ studentToken, message: 'Email verified and student registered successfully', success: true });
+  } catch (error) {
+    console.error('Error verifying code:', error);
+    res.status(500).json({ message: 'Failed to verify code', success: false });
+  }
+});
 
 
 //Login for student
@@ -251,7 +432,12 @@ Only respond with clean JSON. Do not include any explanation or markdown.
 
             return res.json({
                 message: "Data saved successfully",
-                success: true
+                success: true,
+                data: {
+                    std10_percentage: extracted.std10_percentage,
+                    std12_or_diploma: extracted.std12_or_diploma,
+                    college_cgpa: extracted.college_cgpa,
+                }
             });
 
         } catch (parseErr) {
