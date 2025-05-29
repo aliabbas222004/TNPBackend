@@ -13,6 +13,8 @@ const uploadDirect = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const { cloudinary } = require('../config/cloudinary');
 const StudentData = require('../models/StudentData');
+const Job = require('../models/Job');
+
 const AppliedStudentDetails = require('../models/AppliedStudentDetails');
 
 function uploadBufferToCloudinary(buffer, publicId, resourceType = 'image') {
@@ -46,6 +48,8 @@ function parseNumber(str) {
     return parseFloat(str.trim());
 }
 
+
+//SignUp for student
 
 router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
     const errors = validationResult(req);
@@ -90,6 +94,9 @@ router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async 
     }
 })
 
+
+//Login for student
+
 router.post('/logIn', async (req, res) => {
     try {
         const stud = await Student.findOne({ prn: req.body.prn });
@@ -116,6 +123,9 @@ router.post('/logIn', async (req, res) => {
     }
 });
 
+
+//Upload details only if the student hasn't uploaded yet
+
 router.post('/uploadDetails', uploadDirect.fields([
     { name: 'images', maxCount: 3 },
     { name: 'resume', maxCount: 1 }
@@ -129,7 +139,7 @@ router.post('/uploadDetails', uploadDirect.fields([
             const uploadedResume = await uploadBufferToCloudinary(
                 resumeFile.buffer,
                 `resume_${Date.now()}`,
-                'raw' 
+                'raw'
             );
             resumeUrl = uploadedResume.secure_url;
         }
@@ -155,10 +165,13 @@ Extract the following:
 
 1. For Class 10th marksheet:
    - Total marks might not be present; assume total marks = 600.
-   - Extract obtained marks and calculate percentage.
+   - Extract grand total of marks obtained, it might be present in words so convert it to number
 
 2. For Class 12th marksheet:
-   - Ignore the "theory total" field which is used only for grading.
+- Look for the phrase "Total marks obtained in words" (or similar).
+- Convert it to numeric form and extract it as "obtained_marks".
+- Look for a phrase like "650 OBTAINED MARKS 524" or "TOTAL MARKS 650" to determine "total_marks". If not found, assume total_marks as 650.
+- Ignore percentages like "PERCENTILE RANK-SCIENCE THEORY" and focus on overall obtained marks.
    - Use the fields named "total marks" and "obtained marks".
    - Calculate the percentage as (obtained marks / total marks) * 100.
 
@@ -218,7 +231,7 @@ Only respond with clean JSON. Do not include any explanation or markdown.
             );
 
             await StudentData.create({
-                prn:req.body.prn,
+                prn: req.body.prn,
                 education: {
                     college: {
                         cmks: parseNumber(extracted.college_cgpa),
@@ -242,7 +255,6 @@ Only respond with clean JSON. Do not include any explanation or markdown.
             });
 
         } catch (parseErr) {
-            console.error('Failed to parse JSON:', parseErr);
             return res.json({ rawOutput: text });
         }
 
@@ -252,6 +264,8 @@ Only respond with clean JSON. Do not include any explanation or markdown.
     }
 });
 
+
+//To get questions to prepare for interview
 
 router.post('/getQuestionFromResume', async (req, res) => {
     const prompt = `
@@ -288,6 +302,9 @@ Only respond with clean JSON. Do not include any explanation or markdown.
     }
 })
 
+
+//Apply for the job
+
 router.post('/applyForJob', uploadDirect.single('resume'), async (req, res) => {
     try {
         const { prn, jobId } = req.body;
@@ -316,6 +333,81 @@ router.post('/applyForJob', uploadDirect.single('resume'), async (req, res) => {
         });
     } catch (err) {
         return res.status(500).json({ message: "Server error", success: false });
+    }
+});
+
+
+
+//Get all jobs that they have applied for for withdrawing purpose
+
+router.get('/getAllAppliedJobs', async (req, res) => {
+    try {
+        const { prn } = req.body;
+        const appliedJobs = await AppliedStudentDetails.find({ prn });
+        const jobIds = appliedJobs.map(a => a.jobId);
+        const currentDate = new Date();
+        const jobDetails = await Job.find({
+            _id: { $in: jobIds },
+            lastDateForApplication: { $gt: currentDate }
+        });
+        const jobDetailsMap = jobDetails.reduce((acc, job) => {
+            acc[job._id.toString()] = job;
+            return acc;
+        }, {});
+
+        const mergedData = appliedJobs.map(application => ({
+            ...application.toObject(),
+            job: jobDetailsMap[application.jobId.toString()] || null
+        }));
+
+        return res.json(mergedData);
+    }
+    catch(e){
+        return res.json({error:"Failed to retrive data",success:false});
+    }
+
+});
+
+
+//Withdraw the application
+
+router.post('/retrieveForm', async (req, res) => {
+    try {
+        await AppliedStudentDetails.deleteOne({ prn: req.body.prn, jobId: req.body.jobId });
+        return res.json({ message: "Form withdrawn successfully", success: true });
+    }
+    catch (e) {
+        return res.json({ error: "Error withdrawing the form", success: false })
+    }
+});
+
+
+
+//Get all jobs that the student has applied for the main dashboard
+
+router.get('/allApplications', async (req, res) => {
+    try {
+        const { prn } = req.body;
+        const appliedJobs = await AppliedStudentDetails.find({ prn });
+        if(!appliedJobs){
+            return res.json({message:"You haven't applied for any jobs yet!"})
+        }
+        const jobIds = appliedJobs.map(a => a.jobId);
+        const jobDetails = await Job.find({ _id: { $in: jobIds } });
+        const jobDetailsMap = jobDetails.reduce((acc, job) => {
+            acc[job._id.toString()] = job;
+            return acc;
+        }, {});
+
+        const mergedData = appliedJobs.map(application => ({
+            ...application.toObject(),
+            job: jobDetailsMap[application.jobId.toString()] || null
+        }));
+
+        res.json(mergedData);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server Error" });
     }
 });
 
