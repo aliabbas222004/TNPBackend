@@ -260,6 +260,7 @@ router.post('/verify-email', async (req, res) => {
     const data = {
       student: {
         id: student.id,
+        prn:stud.prn
       },
     };
     const studentToken = jwt.sign(data, JWT_SECRET);
@@ -291,7 +292,8 @@ router.post('/logIn', async (req, res) => {
         else {
             const data = {
                 student: {
-                    id: stud.id
+                    id: stud.id,
+                    prn:stud.prn
                 }
             }
             const studentToken = jwt.sign(data, JWT_SECRET);
