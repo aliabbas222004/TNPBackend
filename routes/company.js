@@ -38,6 +38,39 @@ router.post('/logIn', async (req, res) => {
     }
 });
 
+router.get('/companyData', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Token missing or malformed', success: false });
+    }
+
+    const token = authHeader;
+    console.log('Company token:', token);
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const companyId = decoded.company?.id;
+
+    if (!companyId) {
+      return res.status(400).json({ error: 'Invalid token payload', success: false });
+    }
+
+    const company = await Company.findById(companyId).select('-password').lean();
+
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found', success: false });
+    }
+
+    console.log('Company data:', company);
+
+    res.status(200).json({ company, success: true });
+  } catch (error) {
+    console.error('Error fetching company data:', error);
+    res.status(500).json({ error: 'Server error', success: false });
+  }
+});
+
 router.post('/addInformation', upload.array('companyProfile', 1), async (req, res) => {
     try {
         const company = await Company.findOne({ companyId: req.body.companyId });

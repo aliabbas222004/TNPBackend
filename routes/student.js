@@ -126,8 +126,7 @@ function parseNumber(str) {
 // })
 
 router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
-    console.log("Body:", req.body);
-    console.log("Files:", req.files);
+   
 
     const errors = validationResult(req);
     console.log("Errors:", errors.array());
@@ -306,6 +305,46 @@ router.post('/logIn', async (req, res) => {
         res.status(500).send("Something went wrong");
     }
 });
+
+
+// Get student details
+
+router.get('/studentData', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader  // "Bearer <token>"
+
+    console.log("Token:", token);
+
+    if (!token) {
+      return res.status(401).json({ error: 'Token missing' });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const prn = decoded.student?.prn;
+
+    if (!prn) {
+      return res.status(400).json({ error: 'Invalid token payload', success: false });
+    }
+
+    const student = await Student.findOne({ prn }).select('-password').lean();
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found', success: false });
+    }
+
+    console.log("Student data:", student);
+
+    res.status(200).json({ student, success: true });
+  } catch (error) {
+    console.error('Error fetching student data:', error);
+    res.status(500).json({ error: 'Server error', success: false });
+  }
+});
+
+
+
+
 
 
 //Upload details only if the student hasn't uploaded yet
@@ -612,4 +651,11 @@ router.post('/allApplications', async (req, res) => {
 });
 
 
+
+
+
 module.exports = router;
+
+
+
+
