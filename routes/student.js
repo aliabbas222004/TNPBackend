@@ -17,6 +17,7 @@ const StudentData = require('../models/StudentData');
 const Job = require('../models/Job');
 require('dotenv').config();
 const AppliedStudentDetails = require('../models/AppliedStudentDetails');
+const Company = require('../models/Company');
 
 
 const verificationCodes = {};
@@ -24,17 +25,17 @@ const pendingRegistrations = {};
 
 // Configure nodemailer
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+    },
 });
 
 function generateVerificationCode() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+    return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 
@@ -79,7 +80,7 @@ function parseNumber(str) {
 //     const errors = validationResult(req);
 
 //     console.log("Errors:", errors.array());
-    
+
 //     if (!errors.isEmpty()) {
 //         return res.status(400).json({ error: "Invalid inputs", success: false });
 //     }
@@ -125,155 +126,155 @@ function parseNumber(str) {
 // })
 
 router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
-  console.log("Body:", req.body);
-  console.log("Files:", req.files);
+    console.log("Body:", req.body);
+    console.log("Files:", req.files);
 
-  const errors = validationResult(req);
-  console.log("Errors:", errors.array());
+    const errors = validationResult(req);
+    console.log("Errors:", errors.array());
 
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ error: "Invalid inputs", success: false });
-  }
-
-  try {
-    // Check for existing PRN or email
-    const stud2 = await Student.findOne({ prn: req.body.prn });
-    const stud1 = await Student.findOne({ email: req.body.email });
-    if (stud2) {
-      return res.status(400).json({ error: "PRN already exists", success: false });
-    }
-    if (stud1) {
-      return res.status(400).json({ error: "Email already taken", success: false });
+    if (!errors.isEmpty()) {
+        return res.status(400).json({ error: "Invalid inputs", success: false });
     }
 
-    console.log("Started to save");
+    try {
+        // Check for existing PRN or email
+        const stud2 = await Student.findOne({ prn: req.body.prn });
+        const stud1 = await Student.findOne({ email: req.body.email });
+        if (stud2) {
+            return res.status(400).json({ error: "PRN already exists", success: false });
+        }
+        if (stud1) {
+            return res.status(400).json({ error: "Email already taken", success: false });
+        }
 
-    // Upload profile photo to Cloudinary
-    const imageLink = req.files[0].path || '';
-    // if (imageLink) {
-    //   const uploadedImage = await uploadBufferToCloudinary(
-    //     req.files[0].buffer,
-    //     `profile_${req.body.prn}_${Date.now()}`,
-    //     'image'
-    //   );
-    //   imageLink = uploadedImage.secure_url;
-    //   console.log("Image uploaded to Cloudinary:", imageLink);
-    // }
+        console.log("Started to save");
 
-    // Generate verification code
-    const code = generateVerificationCode();
-    console.log(`Generated verification code: ${code}`);
-    const email = req.body.email;
+        // Upload profile photo to Cloudinary
+        const imageLink = req.files[0].path || '';
+        // if (imageLink) {
+        //   const uploadedImage = await uploadBufferToCloudinary(
+        //     req.files[0].buffer,
+        //     `profile_${req.body.prn}_${Date.now()}`,
+        //     'image'
+        //   );
+        //   imageLink = uploadedImage.secure_url;
+        //   console.log("Image uploaded to Cloudinary:", imageLink);
+        // }
 
-    // Store user data and verification code temporarily
-    pendingRegistrations[email] = {
-      prn: req.body.prn,
-      name: req.body.name,
-      email: req.body.email,
-      password: req.body.password,
-      phone: req.body.phone,
-      address: req.body.address,
-      profilePhoto: imageLink,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes expiration
-    };
-    verificationCodes[email] = {
-      code,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    };
+        // Generate verification code
+        const code = generateVerificationCode();
+        console.log(`Generated verification code: ${code}`);
+        const email = req.body.email;
 
-    // Send verification email
-    const mailOptions = {
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Verify Your Email Address',
-      html: `
+        // Store user data and verification code temporarily
+        pendingRegistrations[email] = {
+            prn: req.body.prn,
+            name: req.body.name,
+            email: req.body.email,
+            password: req.body.password,
+            phone: req.body.phone,
+            address: req.body.address,
+            profilePhoto: imageLink,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes expiration
+        };
+        verificationCodes[email] = {
+            code,
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        };
+
+        // Send verification email
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: email,
+            subject: 'Verify Your Email Address',
+            html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2>Email Verification</h2>
           <p>Your verification code is: <strong>${code}</strong></p>
           <p>This code will expire in 10 minutes.</p>
         </div>
       `,
-    };
+        };
 
-    console.log(`Verification code for ${email}: ${code}`);
+        console.log(`Verification code for ${email}: ${code}`);
 
-    try {
-      if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-        await transporter.sendMail(mailOptions);
-        console.log(`Email sent to ${email}`);
-      } else {
-        console.log('Email not sent - no credentials provided. Using console for verification code.');
-      }
-      res.status(200).json({ message: 'Verification code sent to your email', success: true });
-    } catch (emailError) {
-      console.error('Error sending email:', emailError);
-      res.status(200).json({
-        message: 'Verification code generated but email delivery failed. Check console for code.',
-        fallbackCode: code, // Remove in production
-        success: true,
-      });
+        try {
+            if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+                await transporter.sendMail(mailOptions);
+                console.log(`Email sent to ${email}`);
+            } else {
+                console.log('Email not sent - no credentials provided. Using console for verification code.');
+            }
+            res.status(200).json({ message: 'Verification code sent to your email', success: true });
+        } catch (emailError) {
+            console.error('Error sending email:', emailError);
+            res.status(200).json({
+                message: 'Verification code generated but email delivery failed. Check console for code.',
+                fallbackCode: code, // Remove in production
+                success: true,
+            });
+        }
+    } catch (err) {
+        console.error('Error in sign-up process:', err);
+        res.status(500).json({ error: 'Something went wrong', success: false });
     }
-  } catch (err) {
-    console.error('Error in sign-up process:', err);
-    res.status(500).json({ error: 'Something went wrong', success: false });
-  }
 });
 
 router.post('/verify-email', async (req, res) => {
-  try {
-    const { email, code } = req.body;
+    try {
+        const { email, code } = req.body;
 
-    if (!email || !code) {
-      return res.status(400).json({ message: 'Email and verification code are required', success: false });
+        if (!email || !code) {
+            return res.status(400).json({ message: 'Email and verification code are required', success: false });
+        }
+
+        const storedData = verificationCodes[email];
+        const userData = pendingRegistrations[email];
+
+        if (!storedData || !userData) {
+            return res.status(400).json({ message: 'No verification code or user data found for this email', success: false });
+        }
+
+        if (new Date() > storedData.expiresAt) {
+            delete verificationCodes[email];
+            delete pendingRegistrations[email];
+            return res.status(400).json({ message: 'Verification code has expired', success: false });
+        }
+
+        if (storedData.code !== code) {
+            return res.status(400).json({ message: 'Invalid verification code', success: false });
+        }
+
+        // Proceed with saving user to database
+        const salt = await bcrypt.genSalt(10);
+        const safePass = await bcrypt.hash(userData.password, salt);
+        const student = await Student.create({
+            prn: userData.prn,
+            name: userData.name,
+            email: userData.email,
+            password: safePass,
+            profilePhoto: userData.profilePhoto,
+            phone: userData.phone,
+            address: userData.address,
+        });
+
+        const data = {
+            student: {
+                id: student.id,
+                prn: stud.prn
+            },
+        };
+        const studentToken = jwt.sign(data, JWT_SECRET);
+
+        // Clean up
+        delete verificationCodes[email];
+        delete pendingRegistrations[email];
+
+        res.status(200).json({ studentToken, message: 'Email verified and student registered successfully', success: true });
+    } catch (error) {
+        console.error('Error verifying code:', error);
+        res.status(500).json({ message: 'Failed to verify code', success: false });
     }
-
-    const storedData = verificationCodes[email];
-    const userData = pendingRegistrations[email];
-
-    if (!storedData || !userData) {
-      return res.status(400).json({ message: 'No verification code or user data found for this email', success: false });
-    }
-
-    if (new Date() > storedData.expiresAt) {
-      delete verificationCodes[email];
-      delete pendingRegistrations[email];
-      return res.status(400).json({ message: 'Verification code has expired', success: false });
-    }
-
-    if (storedData.code !== code) {
-      return res.status(400).json({ message: 'Invalid verification code', success: false });
-    }
-
-    // Proceed with saving user to database
-    const salt = await bcrypt.genSalt(10);
-    const safePass = await bcrypt.hash(userData.password, salt);
-    const student = await Student.create({
-      prn: userData.prn,
-      name: userData.name,
-      email: userData.email,
-      password: safePass,
-      profilePhoto: userData.profilePhoto,
-      phone: userData.phone,
-      address: userData.address,
-    });
-
-    const data = {
-      student: {
-        id: student.id,
-        prn:stud.prn
-      },
-    };
-    const studentToken = jwt.sign(data, JWT_SECRET);
-
-    // Clean up
-    delete verificationCodes[email];
-    delete pendingRegistrations[email];
-
-    res.status(200).json({ studentToken, message: 'Email verified and student registered successfully', success: true });
-  } catch (error) {
-    console.error('Error verifying code:', error);
-    res.status(500).json({ message: 'Failed to verify code', success: false });
-  }
 });
 
 
@@ -293,7 +294,7 @@ router.post('/logIn', async (req, res) => {
             const data = {
                 student: {
                     id: stud.id,
-                    prn:stud.prn
+                    prn: stud.prn
                 }
             }
             const studentToken = jwt.sign(data, JWT_SECRET);
@@ -550,8 +551,8 @@ router.get('/getAllAppliedJobs', async (req, res) => {
 
         return res.json(mergedData);
     }
-    catch(e){
-        return res.json({error:"Failed to retrive data",success:false});
+    catch (e) {
+        return res.json({ error: "Failed to retrive data", success: false });
     }
 
 });
@@ -576,21 +577,32 @@ router.post('/retrieveForm', async (req, res) => {
 router.post('/allApplications', async (req, res) => {
     try {
         const { prn } = req.body;
-        const appliedJobs = await AppliedStudentDetails.find({ prn });
-        if(!appliedJobs){
-            return res.json({message:"You haven't applied for any jobs yet!"})
-        }
-        const jobIds = appliedJobs.map(a => a.jobId);
-        const jobDetails = await Job.find({ _id: { $in: jobIds } });
-        const jobDetailsMap = jobDetails.reduce((acc, job) => {
-            acc[job._id.toString()] = job;
-            return acc;
-        }, {});
 
-        const mergedData = appliedJobs.map(application => ({
-            ...application.toObject(),
-            job: jobDetailsMap[application.jobId.toString()] || null
-        }));
+        const appliedJobs = await AppliedStudentDetails.find({ prn });
+        if (!appliedJobs || appliedJobs.length === 0) {
+            return res.json({ message: "You haven't applied for any jobs yet!" });
+        }
+
+        const jobIds = appliedJobs.map(a => a.jobId);
+
+        const jobDetails = await Job.find({ _id: { $in: jobIds } });
+
+        const companyIds = [...new Set(jobDetails.map(job => job.companyId.toString()))];
+        const companies = await Company.find({ companyId: { $in: companyIds } });
+
+        const jobMap = new Map(jobDetails.map(job => [job._id.toString(), job]));
+        const companyMap = new Map(companies.map(company => [company.companyId.toString(), company]));
+
+        const mergedData = appliedJobs.map(application => {
+            const job = jobMap.get(application.jobId.toString());
+            const company = job ? companyMap.get(job.companyId.toString()) : null;
+
+            return {
+                ...application.toObject(),
+                job: job || null,
+                company: company || null,
+            };
+        });
 
         res.json(mergedData);
     } catch (err) {

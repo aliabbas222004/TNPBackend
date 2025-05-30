@@ -61,10 +61,11 @@ router.post('/addInformation', upload.array('companyProfile', 1), async (req, re
 });
 
 router.post('/addJob', async (req, res) => {
-    const { jobTitle, jobDescription, skills, education, workLocation, workDays, workTime, workMode, workModel, CTC, department, bond, lastDateForApplication } = req.body;
+    const { jobTitle, jobDescription, skills, education, workLocation, workDays, workTime, workMode, workModel, CTC, department, bond, lastDateForApplication,companyId } = req.body;
 
     await Job.create({
         jobTitle,
+        companyId,
         jobDescription,
         skills,
         education,
