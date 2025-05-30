@@ -573,7 +573,7 @@ router.post('/retrieveForm', async (req, res) => {
 
 //Get all jobs that the student has applied for the main dashboard
 
-router.get('/allApplications', async (req, res) => {
+router.post('/allApplications', async (req, res) => {
     try {
         const { prn } = req.body;
         const appliedJobs = await AppliedStudentDetails.find({ prn });
