@@ -247,6 +247,7 @@ router.post('/verify-email', async (req, res) => {
         // Proceed with saving user to database
         const salt = await bcrypt.genSalt(10);
         const safePass = await bcrypt.hash(userData.password, salt);
+        console.log("Saving student data...");
         const student = await Student.create({
             prn: userData.prn,
             name: userData.name,
@@ -257,17 +258,22 @@ router.post('/verify-email', async (req, res) => {
             address: userData.address,
         });
 
+        console.log("Student data saved successfully");
+
         const data = {
             student: {
                 id: student.id,
-                prn: stud.prn
+                prn: student.prn
             },
         };
         const studentToken = jwt.sign(data, JWT_SECRET);
-
+        
+        console.log("Student token generated:", studentToken);
         // Clean up
         delete verificationCodes[email];
         delete pendingRegistrations[email];
+
+        console.log("Verification done registration data cleared");
 
         res.status(200).json({ studentToken, message: 'Email verified and student registered successfully', success: true });
     } catch (error) {
