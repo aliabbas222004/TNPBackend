@@ -94,27 +94,114 @@ router.post('/addInformation', upload.array('companyProfile', 1), async (req, re
 });
 
 router.post('/addJob', async (req, res) => {
-    const { jobTitle, jobDescription, skills, education, workLocation, workDays, workTime, workMode, workModel, CTC, department, bond, lastDateForApplication,companyId } = req.body;
+  const {
+    jobTitle,
+    jobDescription,
+    skills,
+    education,
+    workLocation,
+    workDays,
+    workTime,
+    workMode,
+    workModel,
+    CTC,
+    department,
+    bond,
+    lastDateForApplication,
+    companyId,
+  } = req.body;
+
+  // Basic validation
+  try {
+    if (!jobTitle || !jobTitle.trim()) {
+      return res.status(400).json({ message: 'Job title is required', success: false });
+    }
+    if (!jobDescription || !jobDescription.trim()) {
+      return res.status(400).json({ message: 'Job description is required', success: false });
+    }
+    if (!skills || !skills.trim()) {
+      return res.status(400).json({ message: 'At least one skill is required', success: false });
+    }
+    if (!workLocation || !workLocation.trim()) {
+      return res.status(400).json({ message: 'Work location is required', success: false });
+    }
+    if (!workDays || !workDays.trim()) {
+      return res.status(400).json({ message: 'Work days are required', success: false });
+    }
+    if (!workTime || !workTime.trim()) {
+      return res.status(400).json({ message: 'Work time is required', success: false });
+    }
+    if (!workMode || !workMode.trim()) {
+      return res.status(400).json({ message: 'Work mode is required', success: false });
+    }
+    if (!workModel || !workModel.trim()) {
+      return res.status(400).json({ message: 'Work model is required', success: false });
+    }
+    if (!CTC || !CTC.trim()) {
+      return res.status(400).json({ message: 'CTC is required', success: false });
+    }
+    if (!department || !department.trim()) {
+      return res.status(400).json({ message: 'Department is required', success: false });
+    }
+    if (!bond || !bond.trim()) {
+      return res.status(400).json({ message: 'Bond information is required', success: false });
+    }
+    if (!lastDateForApplication) {
+      return res.status(400).json({ message: 'Last date for application is required', success: false });
+    }
+    if (!companyId || !companyId.trim()) {
+      return res.status(400).json({ message: 'Company ID is required', success: false });
+    }
+    // Validate education fields if provided
+    if (education) {
+      if (
+        education.college &&
+        (isNaN(education.college) || education.college < 0 || education.college > 100)
+      ) {
+        return res
+          .status(400)
+          .json({ message: 'College percentage must be between 0 and 100', success: false });
+      }
+      if (
+        education.std12_or_diploma &&
+        (isNaN(education.std12_or_diploma) ||
+          education.std12_or_diploma < 0 ||
+          education.std12_or_diploma > 100)
+      ) {
+        return res
+          .status(400)
+          .json({ message: '12th/Diploma percentage must be between 0 and 100', success: false });
+      }
+      if (education.std10 && (isNaN(education.std10) || education.std10 < 0 || education.std10 > 100)) {
+        return res
+          .status(400)
+          .json({ message: '10th percentage must be between 0 and 100', success: false });
+      }
+    }
 
     await Job.create({
-        jobTitle,
-        companyId,
-        jobDescription,
-        skills,
-        education,
-        workLocation,
-        workDays,
-        workTime,
-        workMode,
-        workModel,
-        CTC,
-        department,
-        bond,
-        lastDateForApplication
+      jobTitle,
+      companyId,
+      jobDescription,
+      skills,
+      education,
+      workLocation,
+      workDays,
+      workTime,
+      workMode,
+      workModel,
+      CTC,
+      department,
+      bond,
+      lastDateForApplication,
     });
 
-    return res.status(200).json({ message: "Job created successfully!", suceess: true });
-})
+    return res.status(200).json({ message: 'Job created successfully!', success: true });
+  } catch (error) {
+    console.error('Error creating job:', error);
+    return res.status(500).json({ message: 'Server error while creating job', success: false });
+  }
+});
 
 router.get('/interestedStudents', async (req, res) => {
     const currDate = Date.now();
