@@ -349,32 +349,22 @@ router.get('/studentData', async (req, res) => {
 });
 
 
-
-
-
-
 //Upload details only if the student hasn't uploaded yet
 
-router.post('/uploadDetails', uploadDirect.fields([
+
+router.post('/fetchMarks', uploadDirect.fields([
     { name: 'images', maxCount: 3 },
     { name: 'resume', maxCount: 1 }
 ]), async (req, res) => {
     try {
         const files = req.files.images;
         const resumeFile = req.files.resume?.[0];
-        let resumeUrl = null;
-
-        if (resumeFile) {
-            const uploadedResume = await uploadBufferToCloudinary(
-                resumeFile.buffer,
-                `resume_${Date.now()}`,
-                'raw'
-            );
-            resumeUrl = uploadedResume.secure_url;
-        }
+        const { prn } = req.body; // Accept prn, but not used
 
         if (!files || files.length !== 3) {
-            return res.status(400).json({ error: 'Please upload exactly 3 images: Class 10, Class 12 OR Diploma, and College marksheet.' });
+            return res.status(400).json({
+                error: 'Please upload exactly 3 images: Class 10, Class 12 OR Diploma, and College marksheet.'
+            });
         }
 
         const base64Images = files.map(file => ({
@@ -385,41 +375,43 @@ router.post('/uploadDetails', uploadDirect.fields([
         }));
 
         const prompt = `
-You will be provided with three academic documents in the following order:
+You will be provided with three academic documents in this order:
 1. Class 10th marksheet
 2. Class 12th OR Diploma marksheet
 3. College marksheet
 
-Extract the following:
+Extract the following details:
 
-1. For Class 10th marksheet:
-   - Total marks might not be present; assume total marks = 600.
-   - Extract grand total of marks obtained, it might be present in words so convert it to number
+For Class 10th:
+- Look for the phrase "GRAND TOTAL OF MARKS OBTAINED" (or similar, e.g., "Total Marks Obtained").
+- Extract the number in words (e.g., "FOUR HUNDRED EIGHTY SIX") and convert it to numeric form as "obtained_marks".
+- If total marks are explicitly mentioned (e.g., "486/600"), use that as "total_marks". Otherwise, assume total_marks as 600 (common for 6 subjects, 100 marks each).
 
-2. For Class 12th marksheet:
+For Class 12th:
 - Look for the phrase "Total marks obtained in words" (or similar).
 - Convert it to numeric form and extract it as "obtained_marks".
 - Look for a phrase like "650 OBTAINED MARKS 524" or "TOTAL MARKS 650" to determine "total_marks". If not found, assume total_marks as 650.
 - Ignore percentages like "PERCENTILE RANK-SCIENCE THEORY" and focus on overall obtained marks.
-   - Use the fields named "total marks" and "obtained marks".
-   - Calculate the percentage as (obtained marks / total marks) * 100.
 
-3. For Diploma marksheet (if provided instead of Class 12th):
-   - Extract SGPA or CGPA.
+For Diploma (if instead of Class 12th):
+- Extract SGPA or CGPA as "diploma_cgpa".
 
-4. For College marksheet:
-   - Extract CGPA.
+For College:
+- Extract CGPA as "college_cgpa".
 
-Return the results strictly in this JSON format:
+Return JSON ONLY in the following format:
 {
-  "std10_percentage": "XX.XX%",
-  "std12_or_diploma": "YY.YY%",
-  "college_cgpa": "Z.ZZ"
+  "std10_total_marks": 600,
+  "std10_obtained_marks": 486,
+  "std12_total_marks": 650,
+  "std12_obtained_marks": 524,
+  "diploma_cgpa": "8.4",
+  "college_cgpa": "7.91"
 }
 
-Only respond with clean JSON. Do not include any explanation or markdown.
+If diploma is present, std12 fields can be null or omitted.
+Do not add any explanation, markdown, or extra text.
 `;
-
 
         const model = genAI.getGenerativeModel({ model: 'models/gemini-1.5-flash' });
 
@@ -441,63 +433,178 @@ Only respond with clean JSON. Do not include any explanation or markdown.
             if (part) text += part;
         }
 
-        try {
-            const cleanText = text
-                .replace(/```json\s*([\s\S]*?)\s*```/, '$1')
-                .replace(/```\s*([\s\S]*?)\s*```/, '$1')
-                .trim();
+        const cleanText = text
+            .replace(/```json\s*([\s\S]*?)\s*```/, '$1')
+            .replace(/```\s*([\s\S]*?)\s*```/, '$1')
+            .replace(/\s*([\s\S]*?)\s*/, '$1')
+            .trim();
 
-            const extracted = JSON.parse(cleanText);
+        const extracted = JSON.parse(cleanText);
 
-            const uploadResults = await Promise.all(
-                files.map((file, idx) =>
-                    uploadBufferToCloudinary(
-                        file.buffer,
-                        `upload_${Date.now()}_${idx}`,
-                        'image' // ✅ Explicitly uploading images
-                    )
-                )
-            );
+        // Backend logging for Class 10
+        const std10_total = extracted.std10_total_marks || 600;
+        const std10_obtained = extracted.std10_obtained_marks || 0;
+        console.log('Class 10 Extraction:');
+        console.log(`- Total Marks: ${std10_total}`);
+        console.log(`- Obtained Marks: ${std10_obtained}`);
+        const std10_percentage = ((std10_obtained / std10_total) * 100).toFixed(2);
+        console.log(`- Percentage Calculation: (${std10_obtained} / ${std10_total}) * 100 = ${std10_percentage}%`);
 
-            await StudentData.create({
-                prn: req.body.prn,
-                education: {
-                    college: {
-                        cmks: parseNumber(extracted.college_cgpa),
-                        cimage: uploadResults[2].secure_url
-                    },
-                    std12_or_diploma: {
-                        mks12: parsePercentage(extracted.std12_or_diploma),
-                        image12: uploadResults[1].secure_url,
-                    },
-                    std10: {
-                        mks10: parsePercentage(extracted.std10_percentage),
-                        image10: uploadResults[0].secure_url,
-                    }
-                },
-                resume: resumeUrl
-            });
+        // Backend logging for Class 12
+        const std12_total = extracted.std12_total_marks || 650;
+        const std12_obtained = extracted.std12_obtained_marks || 0;
+        console.log('Class 12 Extraction:');
+        console.log(`- Total Marks: ${std12_total}`);
+        console.log(`- Obtained Marks: ${std12_obtained}`);
+        const std12_percentage = ((std12_obtained / std12_total) * 100).toFixed(2);
+        console.log(`- Percentage Calculation: (${std12_obtained} / ${std12_total}) * 100 = ${std12_percentage}%`);
 
-            return res.json({
-                message: "Data saved successfully",
-                success: true,
-                data: {
-                    std10_percentage: extracted.std10_percentage,
-                    std12_or_diploma: extracted.std12_or_diploma,
-                    college_cgpa: extracted.college_cgpa,
-                }
-            });
+        const diploma_cgpa = extracted.diploma_cgpa || null;
+        const college_cgpa = extracted.college_cgpa || null;
 
-        } catch (parseErr) {
-            return res.json({ rawOutput: text });
-        }
+        // Prepare calculation steps for frontend
+        const std10_calculation_steps = [
+            `Total Marks: ${std10_total}`,
+            `Obtained Marks: ${std10_obtained}`,
+            `Percentage: (${std10_obtained} / ${std10_total}) * 100 = ${std10_percentage}%`
+        ];
+
+        const std12_calculation_steps = diploma_cgpa ? null : [
+            `Total Marks: ${std12_total}`,
+            `Obtained Marks: ${std12_obtained}`,
+            `Percentage: (${std12_obtained} / ${std12_total}) * 100 = ${std12_percentage}%`
+        ];
+
+        console.log("Data extracted successfully:", extracted);
+
+        return res.json({
+            message: "Marks extracted successfully",
+            success: true,
+            data: {
+                std10_percentage: `${std10_percentage}%`,
+                std12_or_diploma: diploma_cgpa ? diploma_cgpa : `${std12_percentage}%`,
+                college_cgpa: college_cgpa,
+                std10_calculation_steps,
+                std12_calculation_steps
+            }
+        });
 
     } catch (err) {
-        console.error(err);
+        console.error('Error:', err);
         return res.status(500).json({ error: 'Something went wrong.', details: err.message });
     }
 });
 
+// Route to upload files and save to database
+router.post('/uploadDetails', uploadDirect.fields([
+    { name: 'images', maxCount: 3 },
+    { name: 'resume', maxCount: 1 }
+]), async (req, res) => {
+    try {
+        const files = req.files.images;
+        const resumeFile = req.files.resume?.[0];
+        let resumeUrl = null;
+
+        if (!files || files.length !== 3) {
+            return res.status(400).json({
+                error: 'Please upload exactly 3 images: Class 10, Class 12 OR Diploma, and College marksheet.'
+            });
+        }
+
+        // Extract marks and PRN from request body
+        const {
+            std10_percentage,
+            std12_percentage,
+            diploma_cgpa,
+            college_cgpa,
+            isManual = false,
+            prn
+        } = req.body;
+
+        if (!std10_percentage || (!std12_percentage && !diploma_cgpa) || !college_cgpa || !prn) {
+            return res.status(400).json({
+                error: 'Missing required fields: marks data or PRN.'
+            });
+        }
+
+        // Upload resume to Cloudinary if provided
+        if (resumeFile) {
+            const uploadedResume = await uploadBufferToCloudinary(
+                resumeFile.buffer,
+                `resume_${Date.now()}`,
+                'raw'
+            );
+            resumeUrl = uploadedResume.secure_url;
+        }
+
+        // Upload images to Cloudinary
+        const uploadResults = await Promise.all(
+            files.map((file, idx) =>
+                uploadBufferToCloudinary(
+                    file.buffer,
+                    `upload_${Date.now()}_${idx}`,
+                    'image'
+                )
+            )
+        );
+
+        // Save data to database
+        await StudentData.create({
+            prn,
+            education: {
+                college: {
+                    cmks: parseFloat(college_cgpa),
+                    cimage: uploadResults[2].secure_url
+                },
+                std12_or_diploma: {
+                    mks12: diploma_cgpa ? parseFloat(diploma_cgpa) : parseFloat(std12_percentage),
+                    image12: uploadResults[1].secure_url
+                },
+                std10: {
+                    mks10: parseFloat(std10_percentage),
+                    image10: uploadResults[0].secure_url
+                }
+            },
+            resume: resumeUrl,
+            status: isManual === 'true' || isManual === true ? 'To Be Verified' : 'Verified'
+        });
+
+        console.log("Data uploaded and saved successfully");
+
+        return res.json({
+            message: isManual ? "Data uploaded, pending verification" : "Data uploaded successfully",
+            success: true,
+            data: {
+                std10_percentage: `${std10_percentage}%`,
+                std12_or_diploma: diploma_cgpa || `${std12_percentage}%`,
+                college_cgpa,
+                resume_url: resumeUrl,
+                isManual,
+                prn,
+                status: isManual ? 'To Be Verified' : 'Verified'
+            }
+        });
+
+    } catch (err) {
+        console.error('Error:', err);
+        return res.status(500).json({ error: 'Something went wrong.', details: err.message });
+    }
+});
+
+
+router.get('/availableJobs', async (req, res) => {
+  try {
+    const currentDate = new Date();
+    const jobs = await Job.find({ lastDateForApplication: { $gte: currentDate } }).lean();
+    return res.status(200).json(jobs);
+  } catch (error) {
+    console.error('Error fetching jobs:', error);
+    return res.status(500).json({
+      message: 'Server error while fetching jobs',
+      success: false,
+    });
+  }
+});
 
 //To get questions to prepare for interview
 
