@@ -33,6 +33,10 @@ const studentSchema = new Schema({
     address:{
         type:String,
     },
+    hasAdded:{
+        type:Boolean,
+        default:false,
+    },
     timeStamp:{
         type:Date,
         default:Date.now

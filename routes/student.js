@@ -126,7 +126,7 @@ function parseNumber(str) {
 // })
 
 router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
-   
+
 
     const errors = validationResult(req);
     console.log("Errors:", errors.array());
@@ -267,7 +267,7 @@ router.post('/verify-email', async (req, res) => {
             },
         };
         const studentToken = jwt.sign(data, JWT_SECRET);
-        
+
         console.log("Student token generated:", studentToken);
         // Clean up
         delete verificationCodes[email];
@@ -316,36 +316,40 @@ router.post('/logIn', async (req, res) => {
 // Get student details
 
 router.get('/studentData', async (req, res) => {
-  try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader  // "Bearer <token>"
+    try {
+        const authHeader = req.headers['authorization'];
+        const token = authHeader  // "Bearer <token>"
 
-    console.log("Token:", token);
+        console.log("Token:", token);
 
-    if (!token) {
-      return res.status(401).json({ error: 'Token missing' });
+        if (!token) {
+            return res.status(401).json({ error: 'Token missing' });
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const prn = decoded.student?.prn;
+
+        if (!prn) {
+            return res.status(400).json({ error: 'Invalid token payload', success: false });
+        }
+
+        const priDetails = await Student.findOne({ prn }).select('-password').lean();
+        const addDetails = await StudentData.findOne({ prn }).select('department education').lean();
+        const student = {
+            ...priDetails,
+            ...addDetails
+        };
+        if (!priDetails) {
+            return res.status(404).json({ error: 'Student not found', success: false });
+        }
+
+        console.log("Student data:", student);
+
+        res.status(200).json({ student, success: true });
+    } catch (error) {
+        console.error('Error fetching student data:', error);
+        res.status(500).json({ error: 'Server error', success: false });
     }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const prn = decoded.student?.prn;
-
-    if (!prn) {
-      return res.status(400).json({ error: 'Invalid token payload', success: false });
-    }
-
-    const student = await Student.findOne({ prn }).select('-password').lean();
-
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found', success: false });
-    }
-
-    console.log("Student data:", student);
-
-    res.status(200).json({ student, success: true });
-  } catch (error) {
-    console.error('Error fetching student data:', error);
-    res.status(500).json({ error: 'Server error', success: false });
-  }
 });
 
 
@@ -593,17 +597,29 @@ router.post('/uploadDetails', uploadDirect.fields([
 
 
 router.get('/availableJobs', async (req, res) => {
-  try {
-    const currentDate = new Date();
-    const jobs = await Job.find({ lastDateForApplication: { $gte: currentDate } }).lean();
-    return res.status(200).json(jobs);
-  } catch (error) {
-    console.error('Error fetching jobs:', error);
-    return res.status(500).json({
-      message: 'Server error while fetching jobs',
-      success: false,
-    });
-  }
+    try {
+        const currentDate = new Date();
+        const jobs = await Job.find({ lastDateForApplication: { $gte: currentDate } }).lean();
+        const companyIds = [...new Set(jobs.map(job => job.companyId))];
+        const companies = await Company.find({ companyId: { $in: companyIds } }).select('companyId companyName companyProfile description').lean();
+        const companyMap = {};
+        companies.forEach(company => {
+            companyMap[company.companyId] = company;
+        });
+
+        const jobsWithCompanyDetails = jobs.map(job => ({
+            ...job,
+            companyDetails: companyMap[job.companyId] || null
+        }));
+        console.log(jobsWithCompanyDetails);
+        return res.status(200).json(jobsWithCompanyDetails);
+    } catch (error) {
+        console.error('Error fetching jobs:', error);
+        return res.status(500).json({
+            message: 'Server error while fetching jobs',
+            success: false,
+        });
+    }
 });
 
 //To get questions to prepare for interview
@@ -764,11 +780,4 @@ router.post('/allApplications', async (req, res) => {
 });
 
 
-
-
-
 module.exports = router;
-
-
-
-

@@ -6,6 +6,10 @@ const studentDataSchema = new Schema({
         type:String,
         required:true
     },
+    department:{
+        type:String,
+        required:true
+    },
     education: {
         college: {
             cmks: {
