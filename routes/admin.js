@@ -2,9 +2,9 @@ const express = require('express');
 const Company = require('../models/Company');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const jwt=require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 const { upload } = require('../config/cloudinary');
-const JWT_SECRET=process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET;
 
 router.post('/logIn', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
@@ -19,16 +19,12 @@ router.post('/logIn', async (req, res) => {
         }
     }
     const adminToken = jwt.sign(data, JWT_SECRET);
-    return res.status(200).json({adminToken, message: "Login successfull", sucess: true });
+    return res.status(200).json({ adminToken, message: "Login successfull", sucess: true });
 
 });
 
 
-router.post('/addCompany',upload.array('companyPhoto',1) , async (req, res) => {
-
-        console.log("Body:", req.body);
-        console.log("Files:", req.files);
-
+router.post('/addCompany', async (req, res) => {
     try {
         const company = await Company.findOne({ companyId: req.body.companyId });
         if (company) {
@@ -37,26 +33,51 @@ router.post('/addCompany',upload.array('companyPhoto',1) , async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const safePass = await bcrypt.hash(req.body.password, salt);
 
-         let companyProfile = '';
-    if (req.files && req.files.length > 0) {
-      companyProfile = req.files[0].path; // Cloudinary URL of the uploaded file
-    }
-
         await Company.create({
-        companyId: req.body.companyId,
-        companyName: req.body.companyName,
-        password: safePass,
-        hasAdded: req.body.hasAdded || false,
-        companyProfile: companyProfile,
-        description: req.body.description,
-        timeStamp: req.body.timeStamp || Date.now()
-    });
+            companyId: req.body.companyId,
+            password: safePass,
+            timeStamp: req.body.timeStamp || Date.now()
+        });
 
-    return res.status(200).json({ message: "Company created successfully", success: true });
+        return res.status(200).json({ message: "Company created successfully", success: true });
     } catch (error) {
         return res.status(500).json({ error: "Server error", success: false });
     }
 });
+
+// router.post('/addCompany',upload.array('companyPhoto',1) , async (req, res) => {
+
+//         console.log("Body:", req.body);
+//         console.log("Files:", req.files);
+
+//     try {
+//         const company = await Company.findOne({ companyId: req.body.companyId });
+//         if (company) {
+//             return res.status(400).json({ error: "Company with this ID already exists", success: false });
+//         }
+//         const salt = await bcrypt.genSalt(10);
+//         const safePass = await bcrypt.hash(req.body.password, salt);
+
+//          let companyProfile = '';
+//     if (req.files && req.files.length > 0) {
+//       companyProfile = req.files[0].path; // Cloudinary URL of the uploaded file
+//     }
+
+//         await Company.create({
+//         companyId: req.body.companyId,
+//         companyName: req.body.companyName,
+//         password: safePass,
+//         hasAdded: req.body.hasAdded || false,
+//         companyProfile: companyProfile,
+//         description: req.body.description,
+//         timeStamp: req.body.timeStamp || Date.now()
+//     });
+
+//     return res.status(200).json({ message: "Company created successfully", success: true });
+//     } catch (error) {
+//         return res.status(500).json({ error: "Server error", success: false });
+//     }
+// });
 
 
 // Get all companies
