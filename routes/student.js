@@ -12,6 +12,8 @@ const { validationResult } = require('express-validator');
 const JWT_SECRET = process.env.JWT_SECRET;
 const uploadDirect = multer({ storage: multer.memoryStorage() });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI2 = new GoogleGenerativeAI(process.env.GEMINI_API_KEY2);
+
 const { cloudinary } = require('../config/cloudinary');
 const StudentData = require('../models/StudentData');
 const Job = require('../models/Job');
@@ -334,7 +336,7 @@ router.get('/studentData', async (req, res) => {
         }
 
         const priDetails = await Student.findOne({ prn }).select('-password').lean();
-        const addDetails = await StudentData.findOne({ prn }).select('department education').lean();
+        const addDetails = await StudentData.findOne({ prn }).select('resume department education').lean();
         const student = {
             ...priDetails,
             ...addDetails
@@ -363,7 +365,7 @@ router.post('/fetchMarks', uploadDirect.fields([
     try {
         const files = req.files.images;
         const resumeFile = req.files.resume?.[0];
-        const { prn } = req.body; // Accept prn, but not used
+        const { prn, department } = req.body; // Accept prn and department
 
         if (!files || files.length !== 3) {
             return res.status(400).json({
@@ -489,7 +491,8 @@ Do not add any explanation, markdown, or extra text.
                 std12_or_diploma: diploma_cgpa ? diploma_cgpa : `${std12_percentage}%`,
                 college_cgpa: college_cgpa,
                 std10_calculation_steps,
-                std12_calculation_steps
+                std12_calculation_steps,
+                department // Include department in response
             }
         });
 
@@ -509,20 +512,24 @@ router.post('/uploadDetails', uploadDirect.fields([
         const resumeFile = req.files.resume?.[0];
         let resumeUrl = null;
 
+        console.log("Files received:", files);
+        console.log("Resume file received:", resumeFile);
+
         if (!files || files.length !== 3) {
             return res.status(400).json({
                 error: 'Please upload exactly 3 images: Class 10, Class 12 OR Diploma, and College marksheet.'
             });
         }
 
-        // Extract marks and PRN from request body
+        // Extract marks, PRN, and department from request body
         const {
             std10_percentage,
             std12_percentage,
             diploma_cgpa,
             college_cgpa,
             isManual = false,
-            prn
+            prn,
+            department
         } = req.body;
 
         if (!std10_percentage || (!std12_percentage && !diploma_cgpa) || !college_cgpa || !prn) {
@@ -555,6 +562,7 @@ router.post('/uploadDetails', uploadDirect.fields([
         // Save data to database
         await StudentData.create({
             prn,
+            department, // Save department to database
             education: {
                 college: {
                     cmks: parseFloat(college_cgpa),
@@ -585,7 +593,8 @@ router.post('/uploadDetails', uploadDirect.fields([
                 resume_url: resumeUrl,
                 isManual,
                 prn,
-                status: isManual ? 'To Be Verified' : 'Verified'
+                status: isManual ? 'To Be Verified' : 'Verified',
+                department // Include department in response
             }
         });
 
@@ -625,39 +634,85 @@ router.get('/availableJobs', async (req, res) => {
 //To get questions to prepare for interview
 
 router.post('/getQuestionFromResume', async (req, res) => {
-    const prompt = `
-You will be provided with the resume link
+    try {
+        const { resumeUrl, numQuestions } = req.body;
 
-Extract the data from the resume and give random 5 questions based on the resume data that can be asked in interview.
+        if (!resumeUrl || !numQuestions || isNaN(numQuestions) || numQuestions < 1 || numQuestions > 10) {
+            return res.status(400).json({
+                error: 'Invalid input: resumeUrl is required, and numQuestions must be a number between 1 and 10.'
+            });
+        }
+
+        const prompt = `
+You are provided with a resume accessible via the following URL: ${resumeUrl}
+
+Your task is to:
+1. Extract key details from the resume, including:
+   - Name
+   - Education (degrees, institutions, years, and CGPA/percentage if available)
+   - Work experience (job titles, companies, duration, and key responsibilities)
+   - Skills (technical, soft, or domain-specific)
+   - Projects (titles, descriptions, technologies used)
+   - Certifications (names, issuing organizations, dates)
+2. Based on the extracted data, generate ${numQuestions} relevant interview questions tailored to the candidate's background.
+3. For each question, provide:
+   - A concise, targeted question suitable for a technical or behavioral interview.
+   - A brief sample answer (1–2 sentences) based on the resume data, reflecting what the candidate might say.
 
 Return the results strictly in this JSON format:
 {
+  "questions": [
+    {
+      "question": "Question text here",
+      "answer": "Sample answer based on resume data"
+    },
+    ...
+  ]
 }
 
-Only respond with clean JSON. Do not include any explanation or markdown.
+Only respond with clean JSON. Do not include any explanation, markdown, or extra text.
 `;
 
+        const model = genAI.getGenerativeModel({ model: 'models/gemini-1.5-flash' });
 
-    const model = genAI.getGenerativeModel({ model: 'models/gemini-1.5-flash' });
+        const result = await model.generateContentStream({
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: prompt }
+                    ]
+                }
+            ]
+        });
 
-    const result = await model.generateContentStream({
-        contents: [
-            {
-                role: 'user',
-                parts: [
-                    { text: prompt },
-                    ...base64Images
-                ]
-            }
-        ]
-    });
+        let text = '';
+        for await (const chunk of result.stream) {
+            const part = chunk.text();
+            if (part) text += part;
+        }
 
-    let text = '';
-    for await (const chunk of result.stream) {
-        const part = chunk.text();
-        if (part) text += part;
+        const cleanText = text
+            .replace(/```json\s*([\s\S]*?)\s*```/, '$1')
+            .replace(/```\s*([\s\S]*?)\s*```/, '$1')
+            .replace(/\s*([\s\S]*?)\s*/, '$1')
+            .trim();
+
+        const extracted = JSON.parse(cleanText);
+
+        console.log("Generated questions:", extracted);
+
+        return res.json({
+            message: "Questions generated successfully",
+            success: true,
+            data: extracted
+        });
+
+    } catch (err) {
+        console.error('Error:', err);
+        return res.status(500).json({ error: 'Something went wrong.', details: err.message });
     }
-})
+});
 
 
 //Apply for the job
