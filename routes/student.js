@@ -182,19 +182,33 @@ router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async 
             code,
             expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         };
-
-        // Send verification email
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: email,
             subject: 'Verify Your Email Address',
             html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Email Verification</h2>
-          <p>Your verification code is: <strong>${code}</strong></p>
-          <p>This code will expire in 10 minutes.</p>
-        </div>
-      `,
+    <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f4f4f4; padding: 30px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
+      <div style="background-color: #ffffff; padding: 25px 30px; border-radius: 8px;">
+        <h2 style="color: #2c3e50; font-size: 24px; margin-bottom: 10px; border-bottom: 2px solid #27ae60; padding-bottom: 10px;">
+          🎓 T&P Cell Email Verification
+        </h2>
+        <p style="color: #333; font-size: 16px; line-height: 1.6;">
+          Hello,<br><br>
+          Please use the following verification code to complete your registration:
+        </p>
+        <p style="font-size: 24px; font-weight: bold; color: #27ae60; margin: 20px 0; text-align: center;">
+          ${code}
+        </p>
+        <p style="color: #555; font-size: 14px; text-align: center;">
+          This code will expire in <strong>10 minutes</strong>.
+        </p>
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        <p style="font-size: 12px; color: #999; text-align: center;">
+          If you did not request this code, you can safely ignore this email.
+        </p>
+      </div>
+    </div>
+  `,
         };
 
         console.log(`Verification code for ${email}: ${code}`);
@@ -337,9 +351,11 @@ router.get('/studentData', async (req, res) => {
 
         const priDetails = await Student.findOne({ prn }).select('-password').lean();
         const addDetails = await StudentData.findOne({ prn }).select('resume department education').lean();
+        const appliedjobdetails=await AppliedStudentDetails.find({ prn }).select('jobId status').lean();
         const student = {
             ...priDetails,
-            ...addDetails
+            ...addDetails,
+            appliedJobs: appliedjobdetails 
         };
         if (!priDetails) {
             return res.status(404).json({ error: 'Student not found', success: false });
@@ -581,6 +597,8 @@ router.post('/uploadDetails', uploadDirect.fields([
             status: isManual === 'true' || isManual === true ? 'To Be Verified' : 'Verified'
         });
 
+        await Student.findOneAndUpdate({ prn }, { hasAdded: true });
+
         console.log("Data uploaded and saved successfully");
 
         return res.json({
@@ -597,7 +615,6 @@ router.post('/uploadDetails', uploadDirect.fields([
                 department // Include department in response
             }
         });
-
     } catch (err) {
         console.error('Error:', err);
         return res.status(500).json({ error: 'Something went wrong.', details: err.message });
@@ -717,26 +734,23 @@ Only respond with clean JSON. Do not include any explanation, markdown, or extra
 
 //Apply for the job
 
-router.post('/applyForJob', uploadDirect.single('resume'), async (req, res) => {
-    try {
-        const { prn, jobId } = req.body;
 
-        if (!req.file) {
-            return res.status(400).json({ message: "Resume file is required", success: false });
+router.post('/applyForJob', async (req, res) => {
+    try {
+        const { prn, email, jobId, resume } = req.body;
+
+        // Validate required fields
+        if (!prn || !email || !jobId) {
+            return res.status(400).json({ message: "PRN, Email, and Job ID are required", success: false });
         }
 
-        const uploadedResume = await uploadBufferToCloudinary(
-            req.file.buffer,
-            `resume_${prn}_${Date.now()}`,
-            'raw'
-        );
-
-        const resumeUrl = uploadedResume.secure_url;
-
+        // Create a new application entry in AppliedStudentDetails
         await AppliedStudentDetails.create({
             prn,
+            email,
             jobId,
-            resume: resumeUrl
+            resume: resume || '', // Store empty string if resume is not provided
+            status: "Processing"
         });
 
         return res.status(200).json({
@@ -744,9 +758,12 @@ router.post('/applyForJob', uploadDirect.single('resume'), async (req, res) => {
             success: true,
         });
     } catch (err) {
+        console.error('Error in /applyForJob:', err);
         return res.status(500).json({ message: "Server error", success: false });
     }
 });
+
+
 
 
 
@@ -783,13 +800,26 @@ router.get('/getAllAppliedJobs', async (req, res) => {
 
 //Withdraw the application
 
-router.post('/retrieveForm', async (req, res) => {
+router.post('/retrieveApplication', async (req, res) => {
     try {
-        await AppliedStudentDetails.deleteOne({ prn: req.body.prn, jobId: req.body.jobId });
-        return res.json({ message: "Form withdrawn successfully", success: true });
-    }
-    catch (e) {
-        return res.json({ error: "Error withdrawing the form", success: false })
+        const { prn, jobId } = req.body;
+
+        // Validate required fields
+        if (!prn || !jobId) {
+            return res.status(400).json({ error: "PRN and Job ID are required", success: false });
+        }
+
+        // Delete the application
+        const result = await AppliedStudentDetails.deleteOne({ prn, jobId });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ error: "Application not found", success: false });
+        }
+
+        return res.status(200).json({ message: "Form withdrawn successfully", success: true });
+    } catch (e) {
+        console.error('Error withdrawing the form:', e);
+        return res.status(500).json({ error: "Error withdrawing the form", success: false });
     }
 });
 

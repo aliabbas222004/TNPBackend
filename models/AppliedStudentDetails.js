@@ -6,6 +6,10 @@ const AppliedStudentDetailsSchema=new Schema({
         type:String,
         required:true,
     },
+    email:{
+        type:String,
+        required:true,
+    },
     jobId:{
         type:String,
         required:true,
