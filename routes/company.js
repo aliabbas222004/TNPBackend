@@ -211,12 +211,12 @@ router.get('/getCreatedJobs',async (req,res)=>{
 
 router.get('/interestedStudents', async (req, res) => {
   const currDate = Date.now();
-  const job = await Job.findOne({ _id: req.body.jobId });
+  const job = await Job.findOne({ _id: req.query.jobId });
   if (currDate < job.lastDateForApplication) {
     return res.json({ error: 'The application has not yet closed. Try after the closing date', success: false });
   }
 
-  const allStudents = await AppliedStudentDetails.find({ jobId: req.body.jobId });
+  const allStudents = await AppliedStudentDetails.find({ jobId: req.query.jobId });
   const studentIds = allStudents.map(app => app.prn);
 
   const allStudentDetails = await Student.find({ prn: { $in: studentIds } });
