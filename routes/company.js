@@ -204,6 +204,11 @@ router.post('/addJob', async (req, res) => {
   }
 });
 
+router.get('/getCreatedJobs',async (req,res)=>{
+  const jobs=await Job.find({companyId:req.query.companyId});
+  return res.json(jobs);
+})
+
 router.get('/interestedStudents', async (req, res) => {
   const currDate = Date.now();
   const job = await Job.findOne({ _id: req.body.jobId });
