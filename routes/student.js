@@ -328,6 +328,58 @@ router.post('/logIn', async (req, res) => {
     }
 });
 
+// 
+router.post('/updateProfile', uploadDirect.fields([
+  { name: 'profilePhoto', maxCount: 1 },
+  { name: 'resume', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const { name, resumeUrl, prn } = req.body;
+    const profilePhotoFile = req.files['profilePhoto']?.[0];
+    const resumeFile = req.files['resume']?.[0];
+
+    let profilePhotoUrl = null;
+    let finalResumeUrl = resumeUrl || null;
+
+    if (profilePhotoFile) {
+      const uploadedImage = await uploadBufferToCloudinary(
+        profilePhotoFile.buffer,
+        `profile_${prn}_${Date.now()}`,
+        'image'
+      );
+      profilePhotoUrl = uploadedImage.secure_url;
+    }
+
+    if (resumeFile) {
+      const uploadedResume = await uploadBufferToCloudinary(
+        resumeFile.buffer,
+        `resume_${prn}_${Date.now()}`,
+        'raw'
+      );
+      finalResumeUrl = uploadedResume.secure_url;
+    }
+
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (profilePhotoUrl) updateData.profilePhoto = profilePhotoUrl;
+
+    await Student.findOneAndUpdate({ prn }, updateData);
+    if (finalResumeUrl) {
+      await StudentData.findOneAndUpdate(
+        { prn },
+        { resume: finalResumeUrl },
+        { upsert: true }
+      );
+    }
+
+    res.status(200).json({ message: 'Profile updated successfully', success: true });
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    res.status(500).json({ error: 'Server error', success: false });
+  }
+});
+
+
 
 // Get student details
 
