@@ -917,4 +917,32 @@ router.post('/allApplications', async (req, res) => {
 });
 
 
+router.get('/getJobs', async (req, res) => {
+  try {
+    const prn = req.query.prn;
+    const appliedJobs = await AppliedStudentDetails.find({ prn });
+
+    const detailedJobs = await Promise.all(
+      appliedJobs.map(async (app) => {
+        const job = await Job.findById(app.jobId);
+        if (!job) return null;
+
+        const company = await Company.findOne({ companyId: job.companyId });
+        if (!company) return null;
+
+        return {
+          ...app._doc,              // data from AppliedStudentDetails
+          jobDetails: job,          // entire Job doc
+          companyDetails: company,  // entire Company doc
+        };
+      })
+    );
+    res.json({ success: true, jobs: detailedJobs });
+  } catch (error) {
+    console.error('Error fetching jobs:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+
 module.exports = router;
