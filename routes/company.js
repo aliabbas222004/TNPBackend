@@ -8,6 +8,7 @@ const Job = require('../models/Job');
 const AppliedStudentDetails = require('../models/AppliedStudentDetails');
 const Student = require('../models/Student');
 const StudentData = require('../models/StudentData');
+const SelectedStudent = require('../models/SelectedStudents');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 
@@ -77,15 +78,15 @@ router.post('/addInformation', upload.single('profilePhoto'), async (req, res) =
     if (!company) {
       return res.status(404).json({ message: 'Company not found', success: false });
     }
-    
-    const imageLink = req.file?.path || ''; 
+
+    const imageLink = req.file?.path || '';
 
     company.companyProfile = imageLink;
     company.description = req.body.description;
     company.companyName = req.body.companyName;
     company.hasAdded = true;
     await company.save();
-    
+
     res.status(200).json({ message: 'Information added successfully', success: true });
   } catch (error) {
     console.error('Error updating company:', error);
@@ -204,8 +205,8 @@ router.post('/addJob', async (req, res) => {
   }
 });
 
-router.get('/getCreatedJobs',async (req,res)=>{
-  const jobs=await Job.find({companyId:req.query.companyId});
+router.get('/getCreatedJobs', async (req, res) => {
+  const jobs = await Job.find({ companyId: req.query.companyId });
   return res.json(jobs);
 })
 
@@ -239,37 +240,36 @@ router.get('/interestedStudents', async (req, res) => {
 })
 
 
-router.get('/selectStudents', async (req, res) => {
-  const currDate = Date.now();
-  const job = await Job.findOne({ _id: req.body.jobId });
-  if (currDate < job.lastDateForApplication) {
-    return res.json({ error: 'The application has not yet closed. Try after the closing date', success: false });
+router.post('/selectStudents', async (req, res) => {
+  const { jobId, selectedPRNs } = req.body;
+  await StudentData.updateMany(
+    { prn: { $in: selectedPRNs } },
+    { $set: { 'status': 'placed' } }
+  );
+
+  await AppliedStudentDetails.updateMany(
+    { prn: { $in: selectedPRNs }, jobId: jobId },
+    { $set: { 'status': 'Selected' } }
+  );
+
+  await AppliedStudentDetails.updateMany(
+    { prn: { $nin: selectedPRNs }, jobId: jobId },
+    { $set: { 'status': 'Not selected' } }
+  );
+
+  const job = await Job.findOne({ _id: jobId }).select('companyId').lean();
+  const companyId = job.companyId;
+  for (const prn of selectedPRNs) {
+    const newEntry = new SelectedStudent({
+      prn,
+      jobId,
+      companyId
+    });
+
+    await newEntry.save();
   }
 
-  const allStudents = await AppliedStudentDetails.find({ jobId: req.body.jobId });
-  const studentIds = allStudents.map(app => app.prn);
-
-  const allStudentData = await StudentData.find({
-    prn: { $in: studentIds },
-    status: { $ne: 'Selected' }
-  });
-  const filteredPrns = allStudentData.map(data => data.prn);
-
-  const allStudentDetails = await Student.find({ prn: { $in: filteredPrns } });
-
-  const studentDataMap = {};
-  allStudentData.forEach(data => {
-    studentDataMap[data.prn] = data;
-  });
-
-  const combined = allStudentDetails.map(stud => {
-    return {
-      ...stud.toObject(),
-      additionalData: studentDataMap[stud.prn] || null
-    };
-  });
-
-  return res.json(combined);
+  return res.json({ message: "Students selected successfully!", success: true });
 
 })
 
