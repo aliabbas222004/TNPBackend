@@ -676,10 +676,24 @@ router.post('/uploadDetails', uploadDirect.fields([
 
 router.get('/availableJobs', async (req, res) => {
     try {
-        const currentDate = new Date();
-        const jobs = await Job.find({ lastDateForApplication: { $gte: currentDate } }).lean();
+        const { department } = req.query; // Get department from query parameters
+
+        // Validate department parameter
+        if (!department) {
+            return res.status(400).json({
+                message: 'Department is required',
+                success: false,
+            });
+        }
+
+        // Fetch jobs matching the department
+        const jobs = await Job.find({ department: department }).lean();
+
         const companyIds = [...new Set(jobs.map(job => job.companyId))];
-        const companies = await Company.find({ companyId: { $in: companyIds } }).select('companyId companyName companyProfile description').lean();
+        const companies = await Company.find({ companyId: { $in: companyIds } })
+            .select('companyId companyName companyProfile description')
+            .lean();
+
         const companyMap = {};
         companies.forEach(company => {
             companyMap[company.companyId] = company;
@@ -687,8 +701,9 @@ router.get('/availableJobs', async (req, res) => {
 
         const jobsWithCompanyDetails = jobs.map(job => ({
             ...job,
-            companyDetails: companyMap[job.companyId] || null
+            companyDetails: companyMap[job.companyId] || null,
         }));
+
         console.log(jobsWithCompanyDetails);
         return res.status(200).json(jobsWithCompanyDetails);
     } catch (error) {
