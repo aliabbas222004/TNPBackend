@@ -268,53 +268,53 @@ router.post('/logIn', async (req, res) => {
 
 // 
 router.post('/updateProfile', uploadDirect.fields([
-  { name: 'profilePhoto', maxCount: 1 },
-  { name: 'resume', maxCount: 1 }
+    { name: 'profilePhoto', maxCount: 1 },
+    { name: 'resume', maxCount: 1 }
 ]), async (req, res) => {
-  try {
-    const { name, resumeUrl, prn } = req.body;
-    const profilePhotoFile = req.files['profilePhoto']?.[0];
-    const resumeFile = req.files['resume']?.[0];
+    try {
+        const { name, resumeUrl, prn } = req.body;
+        const profilePhotoFile = req.files['profilePhoto']?.[0];
+        const resumeFile = req.files['resume']?.[0];
 
-    let profilePhotoUrl = null;
-    let finalResumeUrl = resumeUrl || null;
+        let profilePhotoUrl = null;
+        let finalResumeUrl = resumeUrl || null;
 
-    if (profilePhotoFile) {
-      const uploadedImage = await uploadBufferToCloudinary(
-        profilePhotoFile.buffer,
-        `profile_${prn}_${Date.now()}`,
-        'image'
-      );
-      profilePhotoUrl = uploadedImage.secure_url;
+        if (profilePhotoFile) {
+            const uploadedImage = await uploadBufferToCloudinary(
+                profilePhotoFile.buffer,
+                `profile_${prn}_${Date.now()}`,
+                'image'
+            );
+            profilePhotoUrl = uploadedImage.secure_url;
+        }
+
+        if (resumeFile) {
+            const uploadedResume = await uploadBufferToCloudinary(
+                resumeFile.buffer,
+                `resume_${prn}_${Date.now()}`,
+                'raw'
+            );
+            finalResumeUrl = uploadedResume.secure_url;
+        }
+
+        const updateData = {};
+        if (name) updateData.name = name;
+        if (profilePhotoUrl) updateData.profilePhoto = profilePhotoUrl;
+
+        await Student.findOneAndUpdate({ prn }, updateData);
+        if (finalResumeUrl) {
+            await StudentData.findOneAndUpdate(
+                { prn },
+                { resume: finalResumeUrl },
+                { upsert: true }
+            );
+        }
+
+        res.status(200).json({ message: 'Profile updated successfully', success: true });
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        res.status(500).json({ error: 'Server error', success: false });
     }
-
-    if (resumeFile) {
-      const uploadedResume = await uploadBufferToCloudinary(
-        resumeFile.buffer,
-        `resume_${prn}_${Date.now()}`,
-        'raw'
-      );
-      finalResumeUrl = uploadedResume.secure_url;
-    }
-
-    const updateData = {};
-    if (name) updateData.name = name;
-    if (profilePhotoUrl) updateData.profilePhoto = profilePhotoUrl;
-
-    await Student.findOneAndUpdate({ prn }, updateData);
-    if (finalResumeUrl) {
-      await StudentData.findOneAndUpdate(
-        { prn },
-        { resume: finalResumeUrl },
-        { upsert: true }
-      );
-    }
-
-    res.status(200).json({ message: 'Profile updated successfully', success: true });
-  } catch (error) {
-    console.error('Error updating profile:', error);
-    res.status(500).json({ error: 'Server error', success: false });
-  }
 });
 
 
@@ -341,11 +341,11 @@ router.get('/studentData', async (req, res) => {
 
         const priDetails = await Student.findOne({ prn }).select('-password').lean();
         const addDetails = await StudentData.findOne({ prn }).select('resume department education').lean();
-        const appliedjobdetails=await AppliedStudentDetails.find({ prn }).select('jobId status').lean();
+        const appliedjobdetails = await AppliedStudentDetails.find({ prn }).select('jobId status').lean();
         const student = {
             ...priDetails,
             ...addDetails,
-            appliedJobs: appliedjobdetails 
+            appliedJobs: appliedjobdetails
         };
         if (!priDetails) {
             return res.status(404).json({ error: 'Student not found', success: false });
@@ -887,31 +887,63 @@ router.post('/allApplications', async (req, res) => {
 
 
 router.get('/getJobs', async (req, res) => {
-  try {
-    const prn = req.query.prn;
-    const appliedJobs = await AppliedStudentDetails.find({ prn });
+    try {
+        const prn = req.query.prn;
+        const appliedJobs = await AppliedStudentDetails.find({ prn });
 
-    const detailedJobs = await Promise.all(
-      appliedJobs.map(async (app) => {
-        const job = await Job.findById(app.jobId);
-        if (!job) return null;
+        const detailedJobs = await Promise.all(
+            appliedJobs.map(async (app) => {
+                const job = await Job.findById(app.jobId);
+                if (!job) return null;
 
-        const company = await Company.findOne({ companyId: job.companyId });
-        if (!company) return null;
+                const company = await Company.findOne({ companyId: job.companyId });
+                if (!company) return null;
 
-        return {
-          ...app._doc,              // data from AppliedStudentDetails
-          jobDetails: job,          // entire Job doc
-          companyDetails: company,  // entire Company doc
-        };
-      })
-    );
-    res.json({ success: true, jobs: detailedJobs });
-  } catch (error) {
-    console.error('Error fetching jobs:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
+                return {
+                    ...app._doc,              // data from AppliedStudentDetails
+                    jobDetails: job,          // entire Job doc
+                    companyDetails: company,  // entire Company doc
+                };
+            })
+        );
+        res.json({ success: true, jobs: detailedJobs });
+    } catch (error) {
+        console.error('Error fetching jobs:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
 });
+
+
+router.get('/getApplicationDetails', async (req, res) => {
+    try {
+        const prn = req.query.prn;
+        const jobId = req.query.jobId;
+        const appliedJob = await AppliedStudentDetails.findOne({ prn, jobId });
+        const studentPersonalDetails = await Student.findOne({ prn });
+        const studentEducationalDetails = await StudentData.findOne({ prn });
+
+        const mergedStudentDetails = {
+            prn,
+            ...studentPersonalDetails.toObject(),
+            ...studentEducationalDetails.toObject(),
+            ...appliedJob.toObject(), 
+            resume: appliedJob.resume
+        };
+
+        delete mergedStudentDetails.prn;
+        delete mergedStudentDetails.resume; 
+        mergedStudentDetails.prn = prn;
+        mergedStudentDetails.resume = appliedJob.resume; 
+
+        res.json({ success: true, details: mergedStudentDetails });
+    } catch (error) {
+        console.error('Error fetching jobs:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+
+
 
 
 module.exports = router;
