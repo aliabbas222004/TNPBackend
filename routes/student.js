@@ -73,60 +73,6 @@ function parseNumber(str) {
 }
 
 
-//SignUp for student
-
-// router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
-//     console.log("Body:", req.body);
-//      console.log("Files:", req.files);
-
-//     const errors = validationResult(req);
-
-//     console.log("Errors:", errors.array());
-
-//     if (!errors.isEmpty()) {
-//         return res.status(400).json({ error: "Invalid inputs", success: false });
-//     }
-
-//     try {
-//         let stud2 = await Student.findOne({ prn: req.body.prn });
-//         let stud1 = await Student.findOne({ email: req.body.email });
-//         if (stud2) {
-//             return res.status(400).json({ error: "PRN already exists", success: false });
-//         }
-//         else if (stud1) {
-//             return res.status(400).json({ error: "Email already taken" });
-//         }
-
-//         console.log("started to save");
-
-//         const salt = await bcrypt.genSalt(10);
-//         const safePass = await bcrypt.hash(req.body.password, salt);
-//         const imageLink = req.files[0].path || '';
-//         console.log("Saving .......................");
-//         const student = await Student.create({
-//             prn: req.body.prn,
-//             name: req.body.name,
-//             email: req.body.email,
-//             password: safePass,
-//             profilePhoto: imageLink,
-//             phone: req.body.phone,
-//             address: req.body.address,
-//         });
-
-//         const data = {
-//             student: {
-//                 id: student.id
-//             }
-//         }
-//         const studentToken = jwt.sign(data, JWT_SECRET);
-//         res.json({ studentToken, message: "Student registered successfully", success: true });
-
-//     } catch (err) {
-//         console.log(err);
-//         res.status(500).send("Something went wrong");
-//     }
-// })
-
 router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async (req, res) => {
 
 
@@ -152,15 +98,7 @@ router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async 
 
         // Upload profile photo to Cloudinary
         const imageLink = req.files[0].path || '';
-        // if (imageLink) {
-        //   const uploadedImage = await uploadBufferToCloudinary(
-        //     req.files[0].buffer,
-        //     `profile_${req.body.prn}_${Date.now()}`,
-        //     'image'
-        //   );
-        //   imageLink = uploadedImage.secure_url;
-        //   console.log("Image uploaded to Cloudinary:", imageLink);
-        // }
+ 
 
         // Generate verification code
         const code = generateVerificationCode();
@@ -802,27 +740,43 @@ Only respond with clean JSON. Do not include any explanation, markdown, or extra
 //Apply for the job
 
 
-router.post('/applyForJob', async (req, res) => {
+router.post('/applyForJob', uploadDirect.fields([
+    { name: 'resume', maxCount: 1 }
+]), async (req, res) => {
     try {
-        const { prn, email, jobId, resume } = req.body;
+        const { prn, email, jobId, resumeUrl } = req.body;
+        const resumeFile = req.files?.resume?.[0];
+        let finalResumeUrl = resumeUrl || '';
 
-        // Validate required fields
         if (!prn || !email || !jobId) {
             return res.status(400).json({ message: "PRN, Email, and Job ID are required", success: false });
         }
 
-        // Create a new application entry in AppliedStudentDetails
-        await AppliedStudentDetails.create({
+        if (resumeFile) {
+            if (resumeFile.mimetype !== 'application/pdf' && resumeFile.mimetype !== 'image/jpeg') {
+                return res.status(400).json({ message: "Resume must be a PDF or JPG file", success: false });
+            }
+            const resourceType = resumeFile.mimetype === 'image/jpeg' ? 'image' : 'raw';
+            const uploadedResume = await uploadBufferToCloudinary(
+                resumeFile.buffer,
+                `resume_${prn}_${Date.now()}`,
+                resourceType
+            );
+            finalResumeUrl = uploadedResume.secure_url;
+        }
+
+        const application = await AppliedStudentDetails.create({
             prn,
             email,
             jobId,
-            resume: resume || '', // Store empty string if resume is not provided
+            resume: finalResumeUrl,
             status: "Processing"
         });
 
         return res.status(200).json({
             message: "Applied successfully",
             success: true,
+            applicationId: application._id
         });
     } catch (err) {
         console.error('Error in /applyForJob:', err);
