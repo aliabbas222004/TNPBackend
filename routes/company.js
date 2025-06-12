@@ -206,9 +206,37 @@ router.post('/addJob', async (req, res) => {
 });
 
 router.get('/getCreatedJobs', async (req, res) => {
+  const companyId = req.query.companyId;
+  const selectedJobEntries = await SelectedStudent.find().select('jobId -_id');
+  const selectedJobIds = selectedJobEntries.map(entry => entry.jobId.toString());
+
+  const jobs = await Job.find({
+    companyId,
+    _id: { $nin: selectedJobIds }
+  });
+  return res.json(jobs);
+})
+
+router.get('/allocatedJobs', async (req, res) => {
+  const companyId = req.query.companyId;
+  const selectedJobEntries = await SelectedStudent.find().select('jobId -_id');
+  const selectedJobIds = selectedJobEntries.map(entry => entry.jobId.toString());
+
+  const jobs = await Job.find({
+    companyId,
+    _id: { $in: selectedJobIds }
+  });
+  return res.json(jobs);
+})
+
+
+
+
+router.get('/getAllCreatedJobs', async (req, res) => {
   const jobs = await Job.find({ companyId: req.query.companyId });
   return res.json(jobs);
 })
+
 
 router.get('/interestedStudents', async (req, res) => {
   const currDate = Date.now();
@@ -300,6 +328,25 @@ router.post('/offerSelectedStudents', async (req, res) => {
     res.status(500).json({ error: 'Internal server error', success: false });
   }
 });
+
+
+router.get('/selectedStudents', async (req, res) => {
+  const jobId = req.query.jobId;
+  const selected = await SelectedStudent.find({ jobId });
+  const prns = selected.map(s => s.prn);
+  const studentDetails = await Student.find({ prn: { $in: prns } }).select('prn name profilePhoto');
+  return res.json(studentDetails);
+});
+
+
+router.get('/rejectedStudents', async (req, res) => {
+  const jobId = req.query.jobId;
+  const selected = await SelectedStudent.find({ jobId });
+  const prns = selected.map(s => s.prn);
+  const studentDetails = await Student.find({ prn: { $nin: prns },jobId }).select('prn name profilePhoto');
+  return res.json(studentDetails);
+});
+
 
 
 module.exports = router;                                                              
