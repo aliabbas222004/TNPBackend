@@ -9,7 +9,9 @@ const AppliedStudentDetails = require('../models/AppliedStudentDetails');
 const Student = require('../models/Student');
 const StudentData = require('../models/StudentData');
 const SelectedStudent = require('../models/SelectedStudents');
+const Interview = require('../models/InterviewSchedule');
 const JWT_SECRET = process.env.JWT_SECRET;
+const nodemailer = require('nodemailer');
 
 
 
@@ -343,8 +345,100 @@ router.get('/rejectedStudents', async (req, res) => {
   const jobId = req.query.jobId;
   const selected = await SelectedStudent.find({ jobId });
   const prns = selected.map(s => s.prn);
-  const studentDetails = await Student.find({ prn: { $nin: prns },jobId }).select('prn name profilePhoto');
+  const studentDetails = await Student.find({ prn: { $nin: prns }, jobId }).select('prn name profilePhoto');
   return res.json(studentDetails);
+});
+
+
+router.get('/getJobsForInterview', async (req, res) => {
+  const companyId = req.query.companyId;
+
+  const selectedJobs = await SelectedStudent.find({}, 'jobId');
+  const selectedJobIds = [...new Set(selectedJobs.map(s => s.jobId.toString()))];
+
+
+  const jobs = await Job.find({
+    companyId,
+    _id: { $nin: selectedJobIds },
+    lastDateForApplication: { $lt: new Date() }
+  });
+
+  return res.json(jobs);
+})
+
+
+router.post('/scheduleInterview', async (req, res) => {
+  const jobId = req.body.jobId;
+  const selectedStudents = req.body.prnS;
+  const job = await Job.findById(jobId);
+  try {
+    if (!Array.isArray(selectedStudents) || selectedStudents.length === 0) {
+      return res.status(400).json({ error: 'No students selected', success: false });
+    }
+
+    const interviewData = selectedStudents.map((student) => ({
+      jobId,
+      prn: student.prn,
+      scheduledAt: new Date(student.scheduledAt)
+    }));
+
+    await Interview.insertMany(interviewData);
+
+
+    const prns = selectedStudents.map((s) => s.prn);
+    const students = await Student.find({ prn: { $in: prns } });
+
+    const transporter = nodemailer.createTransport({
+      service: 'Gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+
+    for (let student of students) {
+      try {
+        const matchedInterview = selectedStudents.find((s) => s.prn === student.prn);
+        const interviewDate = new Date(matchedInterview.scheduledAt);
+        const dateStr = interviewDate.toLocaleDateString();
+        const timeStr = interviewDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        console.log(`Preparing to send email to: ${student.email}`);
+
+        const mailOptions = {
+          from: process.env.EMAIL_USER,
+          to: student.email,
+          subject: `Interview Scheduled for ${job.title}`,
+          html: `
+        <div style="font-family: 'Segoe UI', sans-serif; background-color: #f9f9f9; padding: 20px; border-radius: 10px;">
+          <h2 style="color: #2c3e50;">📢 Interview Invitation - ${job.title}</h2>
+          <p>Dear <strong>${student.name}</strong>,</p>
+          <p>You have been shortlisted for the interview for the position of <strong>${job.title}</strong>.</p>
+          <p><strong>Date:</strong> ${dateStr}<br/><strong>Time:</strong> ${timeStr}</p>
+          <p>Kindly be available 10 minutes before your scheduled time.</p>
+          <p>Best of luck!<br/>T&P Cell</p>
+          <hr/>
+          <small style="color: #777;">If you have questions, reply to this email.</small>
+        </div>
+      `,
+        };
+
+        console.log("Sending email...");
+        await transporter.sendMail(mailOptions);
+        console.log(`✅ Email sent to ${student.email}`);
+
+      } catch (err) {
+        console.error(`❌ Failed to send email to ${student.email}:`, err.message);
+      }
+    }
+
+
+
+    res.status(201).json({ message: 'Interviews scheduled successfully', success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error', success: false });
+  }
 });
 
 

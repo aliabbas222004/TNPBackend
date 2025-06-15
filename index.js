@@ -1,11 +1,12 @@
-require('dotenv').config()
-const connectToMongo=require('./dbSetUp');
-const express=require('express');
+require('dotenv').config();
+const connectToMongo = require('./dbSetUp');
+const express = require('express');
 const http = require('http');
-const app=express()
-const cors =require('cors');
-const port=process.env.PORT;
+const cors = require('cors');
 const { Server } = require('socket.io');
+
+const app = express();
+const port = process.env.PORT || 5000;
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -29,7 +30,12 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     console.log(`User ${socket.id} joined room ${roomId}`);
 
-    socket.to(roomId).emit('user-connected', socket.id);
+    if (room.size === 2) {
+      const [first, second] = [...room];
+      io.to(first).emit('you-are-caller');
+      io.to(second).emit('you-are-callee');
+    }
+
 
     socket.on('disconnect', () => {
       room.delete(socket.id);
@@ -42,7 +48,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('offer', ({ roomId, offer }) => {
-    socket.to(roomId).emit('offer', { offer, from: socket.id });
+    socket.to(roomId).emit('offer', { offer });
   });
 
   socket.on('answer', ({ roomId, answer }) => {
@@ -54,19 +60,21 @@ io.on('connection', (socket) => {
   });
 });
 
+// Middleware
 app.use(cors({ origin: 'http://localhost:5173' }));
-app.use(express.json())
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use("/student",require('./routes/student'));
-app.use("/company",require('./routes/company'));
-app.use("/admin",require('./routes/admin'));
+app.use("/student", require('./routes/student'));
+app.use("/company", require('./routes/company'));
+app.use("/admin", require('./routes/admin'));
 
-app.get("/",(req,res)=>{
-    res.send("Hello")
-})
+app.get("/", (req, res) => {
+  res.send("Hello");
+});
 
-app.listen(port,()=>{
-    console.log("App running on port : ",port)
-})
-
+// Start server
 connectToMongo();
+
+server.listen(port, () => {
+  console.log("App running on port:", port);
+});
