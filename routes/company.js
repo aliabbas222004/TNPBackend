@@ -356,10 +356,12 @@ router.get('/getJobsForInterview', async (req, res) => {
   const selectedJobs = await SelectedStudent.find({}, 'jobId');
   const selectedJobIds = [...new Set(selectedJobs.map(s => s.jobId.toString()))];
 
+  const scheduledJobs = await Interview.find({}, 'jobId');
+  const scheduledJobIds = [...new Set(scheduledJobs.map(s => s.jobId.toString()))];
 
   const jobs = await Job.find({
     companyId,
-    _id: { $nin: selectedJobIds },
+    _id: { $nin: [...selectedJobIds, ...scheduledJobIds] },
     lastDateForApplication: { $lt: new Date() }
   });
 
@@ -368,52 +370,52 @@ router.get('/getJobsForInterview', async (req, res) => {
 
 
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
 });
 
 router.post('/scheduleInterview', async (req, res) => {
-    const { jobId, prnS } = req.body; // prnS is now an array of objects with prn and scheduledAt
-    const job = await Job.findById(jobId);
+  const { jobId, prnS } = req.body; // prnS is now an array of objects with prn and scheduledAt
+  const job = await Job.findById(jobId);
 
-    try {
-        if (!Array.isArray(prnS) || prnS.length === 0) {
-            return res.status(400).json({ error: 'No students selected', success: false });
-        }
+  try {
+    if (!Array.isArray(prnS) || prnS.length === 0) {
+      return res.status(400).json({ error: 'No students selected', success: false });
+    }
 
-        // Save interview schedules to the database
-        const interviewData = prnS.map((student) => ({
-            jobId,
-            prn: student.prn,
-            scheduledAt: new Date(student.scheduledAt),
-        }));
+    // Save interview schedules to the database
+    const interviewData = prnS.map((student) => ({
+      jobId,
+      prn: student.prn,
+      scheduledAt: new Date(student.scheduledAt),
+    }));
 
-        await Interview.insertMany(interviewData);
+    await Interview.insertMany(interviewData);
 
-        // Fetch student details for sending emails
-        const prns = prnS.map((s) => s.prn);
-        const students = await Student.find({ prn: { $in: prns } });
+    // Fetch student details for sending emails
+    const prns = prnS.map((s) => s.prn);
+    const students = await Student.find({ prn: { $in: prns } });
 
-        // Send emails to each student
-        for (let student of students) {
-            try {
-                const matchedInterview = prnS.find((s) => s.prn === student.prn);
-                const interviewDate = new Date(matchedInterview.scheduledAt);
-                const dateStr = interviewDate.toLocaleDateString();
-                const timeStr = interviewDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // Send emails to each student
+    for (let student of students) {
+      try {
+        const matchedInterview = prnS.find((s) => s.prn === student.prn);
+        const interviewDate = new Date(matchedInterview.scheduledAt);
+        const dateStr = interviewDate.toLocaleDateString();
+        const timeStr = interviewDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-                console.log(`Preparing to send email to: ${student.email}`);
+        console.log(`Preparing to send email to: ${student.email}`);
 
-                const mailOptions = {
-                    from: process.env.EMAIL_USER,
-                    to: student.email,
-                    subject: `Interview Scheduled for ${job.title}`,
-                    html: `
+        const mailOptions = {
+          from: process.env.EMAIL_USER,
+          to: student.email,
+          subject: `Interview Scheduled for ${job.title}`,
+          html: `
                         <div style="font-family: 'Segoe UI', sans-serif; background-color: #f9f9f9; padding: 20px; border-radius: 10px;">
                             <h2 style="color: #2c3e50;">📢 Interview Invitation - ${job.title}</h2>
                             <p>Dear <strong>${student.name}</strong>,</p>
@@ -425,22 +427,130 @@ router.post('/scheduleInterview', async (req, res) => {
                             <small style="color: #777;">If you have questions, reply to this email.</small>
                         </div>
                     `,
-                };
+        };
 
-                console.log("Sending email...");
-                await transporter.sendMail(mailOptions);
-                console.log(`✅ Email sent to ${student.email}`);
-            } catch (err) {
-                console.error(`❌ Failed to send email to ${student.email}:`, err.message);
-            }
-        }
-
-        res.status(201).json({ message: 'Interviews scheduled successfully', success: true });
-    } catch (error) {
-        console.error('Error scheduling interviews:', error);
-        res.status(500).json({ error: 'Internal server error', success: false });
+        console.log("Sending email...");
+        await transporter.sendMail(mailOptions);
+        console.log(`✅ Email sent to ${student.email}`);
+      } catch (err) {
+        console.error(`❌ Failed to send email to ${student.email}:`, err.message);
+      }
     }
+
+    res.status(201).json({ message: 'Interviews scheduled successfully', success: true });
+  } catch (error) {
+    console.error('Error scheduling interviews:', error);
+    res.status(500).json({ error: 'Internal server error', success: false });
+  }
 });
+
+router.get('/scheduledJobs', async (req, res) => {
+  const companyId = req.query.companyId;
+
+  // const scheduledJobs = await Interview.find({}, 'jobId');
+  // const scheduledJobIds = [...new Set(scheduledJobs.map(s => s.jobId.toString()))];
+
+  // const jobs = await Job.find({
+  //   companyId,
+  //   _id: { $in: scheduledJobIds },
+  //   lastDateForApplication: { $lt: new Date() }
+  // });
+
+  // return res.json(jobs);
+
+
+  const now = new Date();
+
+  try {
+    const pastJobIdsAgg = await Interview.aggregate([
+      {
+        $group: {
+          _id: "$jobId",
+          allPast: {
+            $max: {
+              $cond: [{ $lt: ["$scheduledAt", now] }, false, true]
+            }
+          }
+        }
+      },
+      {
+        $match: { allPast: true }
+      }
+    ]);
+
+    const pastJobIds = pastJobIdsAgg.map(entry => entry._id.toString());
+
+    const jobs = await Job.find({
+      companyId,
+      _id: { $in: pastJobIds }
+    });
+
+    return res.json(jobs);
+  } catch (err) {
+    console.error("Error in /pastScheduledJobs:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+})
+
+
+router.get('/studentsSelectedForInterview', async (req, res) => {
+  const jobId = req.query.jobId;
+
+  const interviews = await Interview.find({ jobId });
+
+  const enrichedStudents = await Promise.all(
+    interviews.map(async (interview) => {
+      const prn = interview.prn;
+
+      const basicDetails = await Student.findOne({ prn }).select('-password -_id -timeStamp -hasAdded'); // exclude sensitive info
+      const educationDetails = await StudentData.findOne({ prn }).select('-_id -resume -prn -status');
+      const appliedDetails = await AppliedStudentDetails.findOne({ prn, jobId });
+
+      return {
+        ...interview.toObject(),
+        basicDetails,
+        educationDetails,
+        resume: appliedDetails?.resume || null,
+      };
+    })
+  );
+  res.json(enrichedStudents);
+});
+
+router.get('/pastScheduledJobs', async (req, res) => {
+  const companyId = req.query.companyId;
+  const now = new Date();
+
+  try {
+    const pastJobIdsAgg = await Interview.aggregate([
+      {
+        $group: {
+          _id: "$jobId",
+          allPast: {
+            $max: {
+              $cond: [{ $gt: ["$scheduledAt", now] }, false, true]
+            }
+          }
+        }
+      },
+      {
+        $match: { allPast: true }
+      }
+    ]);
+
+    const pastJobIds = pastJobIdsAgg.map(entry => entry._id.toString());
+
+    const jobs = await Job.find({
+      companyId,
+      _id: { $in: pastJobIds }
+    });
+
+    return res.json(jobs);
+  } catch (err) {
+    console.error("Error in /pastScheduledJobs:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+})
 
 
 
