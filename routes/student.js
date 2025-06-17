@@ -20,6 +20,7 @@ const Job = require('../models/Job');
 require('dotenv').config();
 const AppliedStudentDetails = require('../models/AppliedStudentDetails');
 const Company = require('../models/Company');
+const Interview = require('../models/InterviewSchedule');
 
 
 const verificationCodes = {};
@@ -98,7 +99,7 @@ router.post('/signUp', upload.array('profilePhoto', 1), signUpValidation, async 
 
         // Upload profile photo to Cloudinary
         const imageLink = req.files[0].path || '';
- 
+
 
         // Generate verification code
         const code = generateVerificationCode();
@@ -926,14 +927,14 @@ router.get('/getApplicationDetails', async (req, res) => {
             prn,
             ...studentPersonalDetails.toObject(),
             ...studentEducationalDetails.toObject(),
-            ...appliedJob.toObject(), 
+            ...appliedJob.toObject(),
             resume: appliedJob.resume
         };
 
         delete mergedStudentDetails.prn;
-        delete mergedStudentDetails.resume; 
+        delete mergedStudentDetails.resume;
         mergedStudentDetails.prn = prn;
-        mergedStudentDetails.resume = appliedJob.resume; 
+        mergedStudentDetails.resume = appliedJob.resume;
 
         res.json({ success: true, details: mergedStudentDetails });
     } catch (error) {
@@ -942,6 +943,50 @@ router.get('/getApplicationDetails', async (req, res) => {
     }
 });
 
+router.get('/scheduledJobs', async (req, res) => {
+    try {
+        const prn = req.query.prn;
+        if (!prn) return res.status(400).json({ message: 'PRN is required' });
+
+        const now = new Date();
+
+
+        // 1 day before now
+        const oneDayAgo = new Date(now);
+        oneDayAgo.setDate(now.getDate() - 1);
+
+        const interviews = await Interview.find({
+            prn,
+            scheduledAt: { $gte: oneDayAgo }
+        });
+
+
+        const jobIds = interviews.map(i => i.jobId);
+
+        const jobs = await Job.find({ _id: { $in: jobIds } });
+        const companies = await Company.find({ companyId: { $in: jobs.map(j => j.companyId) } });
+        const results = interviews.map(interview => {
+            const job = jobs.find(j => j._id.toString() === interview.jobId.toString());
+            const company = companies.find(c => c.companyId.toString() === job.companyId.toString());
+
+            return {
+                jobId: interview.jobId.toString(),
+                prn: interview.prn,
+                resume: interview.resume,
+                status: interview.status,
+                scheduledAt: interview.scheduledAt,
+                code:interview.code,
+                jobDetails: job?.toObject() || {},
+                companyDetails: company?.toObject() || {},
+            };
+        });
+
+        return res.json(results);
+    } catch (error) {
+        console.error('Error in /scheduledJobs:', error);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
 
 
 

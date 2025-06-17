@@ -10,6 +10,9 @@ const interviewScheduleSchema = new Schema({
     },
     scheduledAt: {
         type: Date
+    },
+    code:{
+        type:String,
     }
 
 })

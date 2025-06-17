@@ -393,6 +393,7 @@ router.post('/scheduleInterview', async (req, res) => {
       jobId,
       prn: student.prn,
       scheduledAt: new Date(student.scheduledAt),
+      code: student.code
     }));
 
     await Interview.insertMany(interviewData);
@@ -447,50 +448,38 @@ router.post('/scheduleInterview', async (req, res) => {
 router.get('/scheduledJobs', async (req, res) => {
   const companyId = req.query.companyId;
 
-  // const scheduledJobs = await Interview.find({}, 'jobId');
-  // const scheduledJobIds = [...new Set(scheduledJobs.map(s => s.jobId.toString()))];
-
-  // const jobs = await Job.find({
-  //   companyId,
-  //   _id: { $in: scheduledJobIds },
-  //   lastDateForApplication: { $lt: new Date() }
-  // });
-
-  // return res.json(jobs);
-
-
   const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // zero out time
 
   try {
-    const pastJobIdsAgg = await Interview.aggregate([
+    const futureJobIdsAgg = await Interview.aggregate([
       {
-        $group: {
-          _id: "$jobId",
-          allPast: {
-            $max: {
-              $cond: [{ $lt: ["$scheduledAt", now] }, false, true]
-            }
-          }
+        $match: {
+          scheduledAt: { $gte: today }
         }
       },
       {
-        $match: { allPast: true }
+        $group: {
+          _id: "$jobId"
+        }
       }
     ]);
 
-    const pastJobIds = pastJobIdsAgg.map(entry => entry._id.toString());
+    const futureJobIds = futureJobIdsAgg.map(entry => entry._id.toString());
 
     const jobs = await Job.find({
       companyId,
-      _id: { $in: pastJobIds }
+      _id: { $in: futureJobIds }
     });
 
     return res.json(jobs);
   } catch (err) {
-    console.error("Error in /pastScheduledJobs:", err);
+    console.error("Error in /scheduledJobs:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
-})
+});
+
+
 
 
 router.get('/studentsSelectedForInterview', async (req, res) => {
@@ -519,7 +508,9 @@ router.get('/studentsSelectedForInterview', async (req, res) => {
 
 router.get('/pastScheduledJobs', async (req, res) => {
   const companyId = req.query.companyId;
+
   const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Midnight today
 
   try {
     const pastJobIdsAgg = await Interview.aggregate([
@@ -528,7 +519,7 @@ router.get('/pastScheduledJobs', async (req, res) => {
           _id: "$jobId",
           allPast: {
             $max: {
-              $cond: [{ $gt: ["$scheduledAt", now] }, false, true]
+              $cond: [{ $gte: ["$scheduledAt", today] }, false, true]
             }
           }
         }
@@ -550,7 +541,8 @@ router.get('/pastScheduledJobs', async (req, res) => {
     console.error("Error in /pastScheduledJobs:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
-})
+});
+
 
 
 
