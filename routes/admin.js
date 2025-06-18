@@ -4,6 +4,8 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { upload } = require('../config/cloudinary');
+const Student = require('../models/Student');
+const StudentData = require('../models/StudentData');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 router.post('/logIn', async (req, res) => {
@@ -140,5 +142,40 @@ router.post('/addCompany', async (req, res) => {
 //         return res.status(500).json({ error: "Server error", success: false });
 //     }
 // });
+
+
+router.get('/allStudents', async (req, res) => {
+    try {
+        const priDetails = await Student.find().select('-password -hasAdded').lean();
+
+        const addDetails = await StudentData.find().lean();
+
+        const addMap = {};
+        for (const data of addDetails) {
+            addMap[data.prn] = data;
+        }
+
+        const mergedStudents = priDetails.map(student => ({
+            ...student,
+            additionalData : addMap[student.prn]  || null
+        }));
+
+        return res.json(mergedStudents);
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+
+router.get('/allCompanies', async (req, res) => {
+    try {
+        const comapnies=await Company.find({});
+        return res.json(comapnies);
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+});
 
 module.exports = router;

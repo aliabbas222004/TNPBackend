@@ -989,6 +989,49 @@ router.get('/scheduledJobs', async (req, res) => {
 });
 
 
+router.get('/pastScheduledJobs', async (req, res) => {
+    try {
+        const prn = req.query.prn;
+        if (!prn) return res.status(400).json({ message: 'PRN is required' });
+
+        const now = new Date();
+
+        const oneDayAgo = new Date(now);
+        oneDayAgo.setDate(now.getDate() - 1);
+
+        const interviews = await Interview.find({
+            prn,
+            scheduledAt: { $lte: oneDayAgo }
+        });
+
+
+        const jobIds = interviews.map(i => i.jobId);
+
+        const jobs = await Job.find({ _id: { $in: jobIds } });
+        const companies = await Company.find({ companyId: { $in: jobs.map(j => j.companyId) } });
+        const results = interviews.map(interview => {
+            const job = jobs.find(j => j._id.toString() === interview.jobId.toString());
+            const company = companies.find(c => c.companyId.toString() === job.companyId.toString());
+
+            return {
+                jobId: interview.jobId.toString(),
+                prn: interview.prn,
+                resume: interview.resume,
+                status: interview.status,
+                scheduledAt: interview.scheduledAt,
+                code:interview.code,
+                jobDetails: job?.toObject() || {},
+                companyDetails: company?.toObject() || {},
+            };
+        });
+
+        return res.json(results);
+    } catch (error) {
+        console.error('Error in /scheduledJobs:', error);
+        return res.status(500).json({ message: 'Server error' });
+    }
+});
+
 
 
 module.exports = router;
