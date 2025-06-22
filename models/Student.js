@@ -10,6 +10,9 @@ const studentSchema = new Schema({
         type:String,
         reqired:true,
     },
+    passOutYear:{
+        type:Number,
+    },
     name:{
         type:String,
         required:true
