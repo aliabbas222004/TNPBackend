@@ -333,21 +333,67 @@ router.post('/offerSelectedStudents', async (req, res) => {
 
 
 router.get('/selectedStudents', async (req, res) => {
-  const jobId = req.query.jobId;
-  const selected = await SelectedStudent.find({ jobId });
-  const prns = selected.map(s => s.prn);
-  const studentDetails = await Student.find({ prn: { $in: prns } }).select('prn name profilePhoto');
-  return res.json(studentDetails);
+  try {
+    const jobId = req.query.jobId;
+
+    const selected = await SelectedStudent.find({ jobId });
+    const prns = selected.map(s => s.prn);
+
+    const primaryDetails = await Student.find({ prn: { $in: prns } }).select('-password -hasAdded').lean();
+    const additionalDetails = await StudentData.find({ prn: { $in: prns } }).lean();
+
+    const studentDataMap = {};
+    additionalDetails.forEach(data => {
+      studentDataMap[data.prn] = data;
+    });
+
+    const mergedStudents = primaryDetails.map(student => ({
+      ...student,
+      additionalData: studentDataMap[student.prn] || null
+    }));
+
+    return res.json(mergedStudents);
+  } catch (error) {
+    console.error('Error fetching selected students:', error);
+    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
 });
+
+
 
 
 router.get('/rejectedStudents', async (req, res) => {
-  const jobId = req.query.jobId;
-  const selected = await SelectedStudent.find({ jobId });
-  const prns = selected.map(s => s.prn);
-  const studentDetails = await Student.find({ prn: { $nin: prns }, jobId }).select('prn name profilePhoto');
-  return res.json(studentDetails);
+  try {
+    const jobId = req.query.jobId;
+
+    const selected = await SelectedStudent.find({ jobId });
+    const selectedPRNs = selected.map(s => s.prn);
+
+    const applied = await AppliedStudentDetails.find({ jobId }).select('prn');
+    const appliedPRNs = applied.map(a => a.prn);
+
+    const rejectedPRNs = appliedPRNs.filter(prn => !selectedPRNs.includes(prn));
+
+    const primaryDetails = await Student.find({ prn: { $in: rejectedPRNs } }).select('-password -hasAdded').lean();
+    const additionalDetails = await StudentData.find({ prn: { $in: rejectedPRNs } }).lean();
+
+    const studentDataMap = {};
+    additionalDetails.forEach(data => {
+      studentDataMap[data.prn] = data;
+    });
+
+    const mergedStudents = primaryDetails.map(student => ({
+      ...student,
+      additionalData: studentDataMap[student.prn] || null
+    }));
+
+    return res.json(mergedStudents);
+  } catch (error) {
+    console.error('Error fetching rejected students:', error);
+    return res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
 });
+
 
 
 router.get('/getJobsForInterview', async (req, res) => {
