@@ -11,7 +11,7 @@ const port = process.env.PORT || 5000;
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: 'https://campusconnect-tnp.onrender.com',
     methods: ['GET', 'POST']
   }
 });
@@ -61,7 +61,7 @@ io.on('connection', (socket) => {
 });
 
 // Middleware
-app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cors({ origin: 'https://campusconnect-tnp.onrender.com' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use("/student", require('./routes/student'));
