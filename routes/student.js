@@ -991,6 +991,7 @@ router.get('/scheduledJobs', async (req, res) => {
 
 router.get('/pastScheduledJobs', async (req, res) => {
     try {
+        
         const prn = req.query.prn;
         if (!prn) return res.status(400).json({ message: 'PRN is required' });
 
@@ -1003,7 +1004,6 @@ router.get('/pastScheduledJobs', async (req, res) => {
             prn,
             scheduledAt: { $lte: oneDayAgo }
         });
-
 
         const jobIds = interviews.map(i => i.jobId);
 
