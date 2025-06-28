@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const { upload } = require('../config/cloudinary');
 const Student = require('../models/Student');
 const StudentData = require('../models/StudentData');
-const SelectedStudent = require('../models/SelectedStudents'); 
+const SelectedStudent = require('../models/SelectedStudents');
 const JWT_SECRET = process.env.JWT_SECRET;
 
 router.post('/logIn', async (req, res) => {
@@ -53,11 +53,11 @@ router.post('/addCompany', async (req, res) => {
 router.get('/analytics', async (req, res) => {
     try {
         const currentYear = new Date().getFullYear(); // 2025
-      //  console.log('Current Year:', currentYear);
+        //  console.log('Current Year:', currentYear);
 
         // Debug: Fetch all documents to check timestamp format
         const allStudents = await SelectedStudent.find().lean();
-      //  console.log('All Students:', allStudents);
+        //  console.log('All Students:', allStudents);
 
         // Query with correct field name 'timeStamp'
         const selectedStudents = await SelectedStudent.find({
@@ -66,7 +66,7 @@ router.get('/analytics', async (req, res) => {
                 $lte: new Date(`${currentYear}-12-31T23:59:59.999Z`)
             }
         }).lean();
-       // console.log('Filtered Students:', selectedStudents);
+        // console.log('Filtered Students:', selectedStudents);
 
         const prns = selectedStudents.map(student => student.prn);
         const studentData = await StudentData.find({ prn: { $in: prns }, status: "placed" }).lean();
@@ -98,7 +98,7 @@ router.get('/allStudents', async (req, res) => {
 
         const mergedStudents = priDetails.map(student => ({
             ...student,
-            additionalData : addMap[student.prn]  || null
+            additionalData: addMap[student.prn] || null
         }));
 
         return res.json(mergedStudents);
@@ -111,12 +111,53 @@ router.get('/allStudents', async (req, res) => {
 
 router.get('/allCompanies', async (req, res) => {
     try {
-        const comapnies=await Company.find({});
+        const comapnies = await Company.find({});
         return res.json(comapnies);
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: "Internal server error" });
     }
 });
+
+
+router.get('/pendingVerifications', async (req, res) => {
+    try {
+        const students = await Student.find({ hasVerified: false });
+
+        const studentPRNs = students.map(student => student.prn);
+
+        const studentDataList = await StudentData.find({ prn: { $in: studentPRNs } });
+
+        const mergedData = students.map(student => {
+            const data = studentDataList.find(sd => sd.prn === student.prn);
+            return {
+                ...student.toObject(),
+                data: data || null
+            };
+        });
+
+        res.status(200).json({ mergedData });
+
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ message: "Internal server error" });
+    }
+});
+
+
+router.post('/verifyPRN', async (req, res) => {
+    try {
+        const prn = req.body.prn;
+        await Student.findOneAndUpdate(
+            { prn },
+            { $set: { hasVerified: true } },
+        );
+        return res.status(200).json({ message: "Verified successfully", success: true });
+    } catch (error) {
+        return res.status(500).json({ error: "Server error", success: false });
+    }
+});
+
+
 
 module.exports = router;

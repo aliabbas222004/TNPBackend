@@ -40,6 +40,10 @@ const studentSchema = new Schema({
         type:Boolean,
         default:false,
     },
+    hasVerified:{
+        type:Boolean,
+        default:false,
+    },
     timeStamp:{
         type:Date,
         default:Date.now

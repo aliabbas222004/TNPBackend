@@ -211,6 +211,28 @@ router.post('/verify-email', async (req, res) => {
             profilePhoto: userData.profilePhoto,
             phone: userData.phone,
             address: userData.address,
+            hasAdded:true
+        });
+
+
+        await StudentData.create({
+            prn:userData.prn,
+            department:userData.department, // Save department to database
+            education: {
+                college: {
+                    cmks: userData.education.college.cmks,
+                    cimage: userData.education.college.cimage
+                },
+                std12_or_diploma: {
+                    mks12:userData.education.std12_or_diploma.mks12,
+                    image12:userData.education.std12_or_diploma.image12,
+                },
+                std10: {
+                    mks10: userData.education.std10.mks10,
+                    image10: userData.education.std10.image10
+                }
+            },
+            resume: userData.resume,
         });
 
         console.log("Student data saved successfully");
@@ -536,8 +558,10 @@ router.post('/uploadDetails', uploadDirect.fields([
             college_cgpa,
             isManual = false,
             prn,
-            department
+            department,
+            email
         } = req.body;
+
 
         if (!std10_percentage || (!std12_percentage && !diploma_cgpa) || !college_cgpa || !prn) {
             return res.status(400).json({
@@ -565,18 +589,29 @@ router.post('/uploadDetails', uploadDirect.fields([
                 )
             )
         );
+        console.log("Hi there");
 
-        // Save data to database
-        await StudentData.create({
-            prn,
-            department, // Save department to database
+        let mks12 = null;
+
+        if (diploma_cgpa && !isNaN(parseFloat(diploma_cgpa))) {
+            mks12 = parseFloat(diploma_cgpa);
+        } else if (std12_percentage && !isNaN(parseFloat(std12_percentage))) {
+            mks12 = parseFloat(std12_percentage);
+        } else {
+            console.log( "Please provide either valid Diploma CGPA or 12th percentage." );
+        }
+
+
+        pendingRegistrations[email]={
+            ...pendingRegistrations[email],
+            department,
             education: {
                 college: {
                     cmks: parseFloat(college_cgpa),
                     cimage: uploadResults[2].secure_url
                 },
                 std12_or_diploma: {
-                    mks12: diploma_cgpa ? parseFloat(diploma_cgpa) : parseFloat(std12_percentage),
+                    mks12,
                     image12: uploadResults[1].secure_url
                 },
                 std10: {
@@ -584,15 +619,38 @@ router.post('/uploadDetails', uploadDirect.fields([
                     image10: uploadResults[0].secure_url
                 }
             },
-            resume: resumeUrl,
-            status: isManual === 'true' || isManual === true ? 'To Be Verified' : 'Verified'
-        });
+            resume: resumeUrl
 
-        await Student.findOneAndUpdate({ prn }, { hasAdded: true });
+
+        }
+
+        console.log(pendingRegistrations[email]);
+
+        // Save data to database
+        // await StudentData.create({
+        //     prn,
+        //     department, // Save department to database
+        //     education: {
+        //         college: {
+        //             cmks: parseFloat(college_cgpa),
+        //             cimage: uploadResults[2].secure_url
+        //         },
+        //         std12_or_diploma: {
+        //             mks12,
+        //             image12: uploadResults[1].secure_url
+        //         },
+        //         std10: {
+        //             mks10: parseFloat(std10_percentage),
+        //             image10: uploadResults[0].secure_url
+        //         }
+        //     },
+        //     resume: resumeUrl,
+        //     status: isManual === 'true' || isManual === true ? 'To Be Verified' : 'Verified'
+        // });
+
 
         console.log("Data uploaded and saved successfully");
-
-        return res.json({
+        res.json({
             message: isManual ? "Data uploaded, pending verification" : "Data uploaded successfully",
             success: true,
             data: {
@@ -975,7 +1033,7 @@ router.get('/scheduledJobs', async (req, res) => {
                 resume: interview.resume,
                 status: interview.status,
                 scheduledAt: interview.scheduledAt,
-                code:interview.code,
+                code: interview.code,
                 jobDetails: job?.toObject() || {},
                 companyDetails: company?.toObject() || {},
             };
@@ -991,7 +1049,7 @@ router.get('/scheduledJobs', async (req, res) => {
 
 router.get('/pastScheduledJobs', async (req, res) => {
     try {
-        
+
         const prn = req.query.prn;
         if (!prn) return res.status(400).json({ message: 'PRN is required' });
 
@@ -1019,7 +1077,7 @@ router.get('/pastScheduledJobs', async (req, res) => {
                 resume: interview.resume,
                 status: interview.status,
                 scheduledAt: interview.scheduledAt,
-                code:interview.code,
+                code: interview.code,
                 jobDetails: job?.toObject() || {},
                 companyDetails: company?.toObject() || {},
             };
